@@ -293,6 +293,10 @@ export const POWERUP_INFO = {
   overcharge: { label: "OVERCHARGE", glyph: "2X", color: "#ffcf4a", glow: "rgba(255,207,74,0.45)" },
   bigShot: { label: "BIG SHOT", glyph: "O", color: "#ff8a3d", glow: "rgba(255,138,61,0.45)" },
   laser: { label: "LASER", glyph: "~", color: "#c86bff", glow: "rgba(200,107,255,0.45)" },
+  // Defensive rather than offensive: halves incoming damage (see
+  // POWERUP_STATS.armor's damageTakenMult in game.js) instead of buffing the
+  // weapon, so its icon deliberately reads "shield" rather than "shot".
+  armor: { label: "ARMOR", glyph: "⬡", color: "#5fe0a0", glow: "rgba(95,224,160,0.45)" },
 };
 
 // A powerup pickup left behind when a building that was secretly seeded

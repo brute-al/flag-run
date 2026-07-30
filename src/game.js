@@ -23,9 +23,13 @@ const RAM_CONTACT_SLACK = 6;
 // lives in entities.js's POWERUP_INFO instead, since that's shared with the
 // world-space pickup icon.
 const POWERUP_STATS = {
-  overcharge: { damageMult: 2, radiusMult: 1, piercing: false },
-  bigShot: { damageMult: 1.6, radiusMult: 2.2, piercing: false },
-  laser: { damageMult: 1.15, radiusMult: 1.3, piercing: true },
+  overcharge: { damageMult: 2, radiusMult: 1, piercing: false, damageTakenMult: 1 },
+  bigShot: { damageMult: 1.6, radiusMult: 2.2, piercing: false, damageTakenMult: 1 },
+  laser: { damageMult: 1.15, radiusMult: 1.3, piercing: true, damageTakenMult: 1 },
+  // The odd one out: doesn't touch outgoing damage at all, just halves
+  // incoming damage (applied at the "vehicleHit" bullet-damage line below) --
+  // "2x armor" in the sense that the vehicle can now soak twice the hits.
+  armor: { damageMult: 1, radiusMult: 1, piercing: false, damageTakenMult: 0.5 },
 };
 
 export class Game {
@@ -184,7 +188,7 @@ export class Game {
   // without a separate "is a powerup active" branch.
   _weaponModifiers() {
     const stats = this.activePowerup && POWERUP_STATS[this.activePowerup.type];
-    if (!stats) return { damageMult: 1, radiusMult: 1, piercing: false };
+    if (!stats) return { damageMult: 1, radiusMult: 1, piercing: false, damageTakenMult: 1 };
     return stats;
   }
 
@@ -261,6 +265,8 @@ export class Game {
         // A powerup pickup (see below) can juice this shot: OVERCHARGE doubles
         // damage, BIG SHOT fattens the round and hits harder, LASER pierces
         // through whatever it hits instead of stopping on the first thing.
+        // (ARMOR doesn't touch outgoing shots at all -- see the vehicleHit
+        // damage line further down for its effect.)
         const mod = this._weaponModifiers();
         const bullet = new Bullet(
           noseX,
@@ -415,7 +421,9 @@ export class Game {
         const d = Math.hypot(bullet.x - this.vehicle.x, bullet.y - this.vehicle.y);
         if (d < bullet.radius + this.vehicle.radius) {
           bullet.dead = true;
-          this.health -= bullet.damage;
+          // ARMOR halves this via damageTakenMult; every other powerup (and
+          // no powerup at all) leaves it at a neutral 1.
+          this.health -= bullet.damage * this._weaponModifiers().damageTakenMult;
           this.events.push("vehicleHit");
         }
       }

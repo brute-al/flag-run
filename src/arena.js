@@ -42,10 +42,13 @@ export class Arena {
           dist(o.x, o.y, this.playerBase.x, this.playerBase.y) > this.playerBase.radius + o.radius + 40 &&
           dist(o.x, o.y, this.enemyBase.x, this.enemyBase.y) > this.enemyBase.radius + o.radius + 40
       );
-      // Secretly tag a handful of destructible buildings with a hidden
-      // powerup -- the player has no way to tell which ones until they
-      // knock one down (see game.js, which spawns the actual pickup once
-      // a tagged building's health hits zero).
+      // Tag a handful of destructible buildings with a hidden powerup (see
+      // game.js, which spawns the actual pickup once a tagged building's
+      // health hits zero). They're drawn gold (_drawBuilding) so the player
+      // has something concrete to chase down instead of demolishing
+      // buildings at random. Re-rolled fresh every round -- see reset() in
+      // game.js, which builds a brand-new Arena (and re-runs this) each time
+      // the player picks a vehicle from the select screen.
       this._seedPowerups(5);
     } else {
       // Scattered rock obstacles the vehicle collides with. Kept out of the
@@ -90,7 +93,7 @@ export class Arena {
   // has decent odds of being the "wrong" one -- the whole point is that the
   // player can't tell which ones are seeded just by looking.
   _seedPowerups(count) {
-    const POWERUP_TYPES = ["overcharge", "bigShot", "laser"];
+    const POWERUP_TYPES = ["overcharge", "bigShot", "laser", "armor"];
     const minSeparation = 220;
     const eligible = this.obstacles.filter((o) => o.destructible);
     const chosen = [];
@@ -381,26 +384,40 @@ export class Arena {
       ctx.closePath();
     };
 
+    // A building secretly seeded with a powerup (see Arena._seedPowerups)
+    // reads as gold with a soft pulsing halo, so hunting one down is an
+    // active, visible choice instead of a blind demolition derby. Reuses the
+    // flag/world-bounds gold (#f2d94e) so it reads as "the same kind of
+    // special" as the rest of the game's gold accents.
+    if (o.hasPowerup) {
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260 + o.x * 0.01);
+      ctx.fillStyle = `rgba(242, 217, 78, ${0.22 + pulse * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, o.radius + 14 + pulse * 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // Ground contact shadow.
     ctx.fillStyle = "rgba(0,0,0,0.18)";
     pathAt({ x: extrude.x + 2, y: extrude.y + 3 });
     ctx.fill();
 
     // Wall face: the same footprint offset down-right, in a darker shade,
-    // so the roof appears to sit up above street level.
-    ctx.fillStyle = colors.wall;
+    // so the roof appears to sit up above street level. Gold-tinted instead
+    // of its normal palette color when it's hiding a powerup.
+    ctx.fillStyle = o.hasPowerup ? "#c9a23a" : colors.wall;
     pathAt(extrude);
     ctx.fill();
-    ctx.strokeStyle = colors.stroke;
+    ctx.strokeStyle = o.hasPowerup ? "#5c4711" : colors.stroke;
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Roof: the real (undisplaced) footprint on top.
-    ctx.fillStyle = colors.roof;
+    ctx.fillStyle = o.hasPowerup ? "#f2d94e" : colors.roof;
     pathAt({ x: 0, y: 0 });
     ctx.fill();
-    ctx.strokeStyle = colors.stroke;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = o.hasPowerup ? "#8a6a10" : colors.stroke;
+    ctx.lineWidth = o.hasPowerup ? 3 : 2;
     ctx.stroke();
 
     // Single flat highlight facet for the toon-lit look.
