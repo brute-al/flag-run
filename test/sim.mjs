@@ -2,13 +2,18 @@
 // are wired up separately in main.js) to check the full mechanic set:
 // per-vehicle drift/movement, jeep-only flag pickup, weapons damaging
 // turrets, the shared finite-lives round-loss condition across all three
-// vehicle types, and mid-round vehicle switching at base.
+// vehicle types, mid-round vehicle switching at base, and (experimental)
+// duel mode's mirrored map + AI opponent pathing.
 
 import { Game } from "../src/game.js";
 import { VEHICLE_TYPES, Vehicle } from "../src/vehicle.js";
 import { Bullet } from "../src/entities.js";
 import { ParticleSystem } from "../src/effects.js";
 import { Camera } from "../src/camera.js";
+import { MAP_DATA } from "../src/mapData.js";
+import { mirrorMapData } from "../src/mirrorMap.js";
+import { buildRoadGraph, findRoute } from "../src/pathfinding.js";
+import { AIDriver } from "../src/aiDriver.js";
 
 const dt = 1 / 60;
 let allPass = true;
@@ -1134,6 +1139,119 @@ console.log("\n=== Game wires particles/shake into actual events ===");
   game.update(dt);
   check("the vehicle exploding adds particles", game.particles.particles.length > countBeforeVehicleDeath);
   check("the vehicle exploding kicks off a (stronger) camera shake", game.camera.shakeMag >= 12);
+}
+
+// --- 19. Duel mode (experimental, milestone 1): mirrored map + AI opponent -
+// Covers the pieces added for "could we do a mirrored map with a computer
+// opponent racing for my flag" (see DEPLOY_NOTES.md's staged plan): the map
+// mirror transform, the shared road-graph pathfinding it and the AI both
+// rely on, the AI's own steering controller in isolation, and finally the
+// whole thing wired into a real Game instance to prove it actually drives
+// toward the target on the real, doubled map -- not just that a route
+// theoretically exists. Single-player mode (the default, `duel: false`) is
+// also checked here to confirm none of this leaks into it.
+console.log("\n=== Duel mode: map mirroring ===");
+{
+  const mirrored = mirrorMapData(MAP_DATA);
+  console.log("[mirrorMapData]");
+  check("doubles the world height", mirrored.worldHeight === MAP_DATA.worldHeight * 2);
+  check("leaves the world width untouched", mirrored.worldWidth === MAP_DATA.worldWidth);
+  check("doubles the building count", mirrored.buildings.length === MAP_DATA.buildings.length * 2);
+  check(
+    "adds one bridge road on top of the mirrored copy of every original road",
+    mirrored.roads.length === MAP_DATA.roads.length * 2 + 1
+  );
+
+  // Spot-check the mirror math itself: the first building's every point
+  // should reappear, in the same x order, reflected about worldHeight.
+  const originalBuilding = MAP_DATA.buildings[0];
+  const mirroredCopy = mirrored.buildings[MAP_DATA.buildings.length]; // first building of the mirrored half
+  let mirrorMathOk = true;
+  for (let i = 0; i < originalBuilding.length; i += 2) {
+    const expectedX = originalBuilding[i];
+    const expectedY = 2 * MAP_DATA.worldHeight - originalBuilding[i + 1];
+    if (mirroredCopy[i] !== expectedX || mirroredCopy[i + 1] !== expectedY) {
+      mirrorMathOk = false;
+      break;
+    }
+  }
+  check("mirrored building points reflect exactly about worldHeight (x unchanged, y flipped)", mirrorMathOk);
+
+  console.log("[bridge actually connects the two halves]");
+  const graph = buildRoadGraph(mirrored.roads);
+  // Sample a point near the very top of the original half and one near the
+  // very bottom of the mirrored half -- if the bridge works, these should
+  // land in the same connected component.
+  const topSample = [MAP_DATA.worldWidth / 2, 200];
+  const bottomSample = [MAP_DATA.worldWidth / 2, mirrored.worldHeight - 200];
+  const route = findRoute(mirrored.roads, topSample[0], topSample[1], bottomSample[0], bottomSample[1]);
+  check(
+    "a route exists all the way from the top of the mirrored map to the bottom",
+    route.length > 2 // more than just the direct-line fallback
+  );
+  check("!graph is non-empty (roads actually produced a real graph)", graph.adj.size > 0);
+}
+
+console.log("\n=== Duel mode: AIDriver steering ===");
+{
+  // Isolated from the real map/physics scale -- a short synthetic route a
+  // vehicle should be able to complete in well under a second of simulated
+  // time, so this stays fast and deterministic regardless of map size.
+  const driver = new AIDriver();
+  const vehicle = new Vehicle(0, 0, 0, "jeep");
+  driver.setRoute([
+    { x: 0, y: 0 },
+    { x: 200, y: 0 },
+    { x: 200, y: 200 },
+  ]);
+
+  check("never fires (no combat this milestone)", !driver.isFiring() && !driver.isFiring2());
+
+  let ticks = 0;
+  while (!driver.reachedEnd && ticks < 60 * 10) {
+    driver.update(vehicle, dt);
+    vehicle.update(dt, driver.getVector());
+    ticks++;
+  }
+  const finalDist = Math.hypot(vehicle.x - 200, vehicle.y - 200);
+  console.log("[following a short synthetic route]");
+  check("reached the end of its route", driver.reachedEnd);
+  // "Arrived" means within the driver's own arrival radius, not pinpoint --
+  // see aiDriver.js's header comment on why a wide radius is deliberate.
+  check("ended up close to the final waypoint", finalDist < 100);
+}
+
+console.log("\n=== Duel mode: wired into a real Game ===");
+{
+  console.log("[single-player mode is completely unaffected (duel defaults off)]");
+  const soloInput = makeInput();
+  const soloGame = new Game(soloInput);
+  soloGame.chooseVehicle("jeep");
+  check("no AI vehicle in single-player mode", soloGame.aiVehicle === null);
+  check("no player-side duel flag in single-player mode", soloGame.playerFlag === null);
+  check("arena is the normal, un-mirrored height", soloGame.arena.height === MAP_DATA.worldHeight);
+
+  console.log("[duel mode sets up a mirrored arena, AI vehicle, and second flag]");
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("jeep");
+
+  check("arena height is doubled for duel mode", game.arena.height === MAP_DATA.worldHeight * 2);
+  check("an AI vehicle was spawned", !!game.aiVehicle);
+  check("the AI drives a jeep", game.aiVehicle.type === "jeep");
+  check("the AI spawned at the mirrored (far) base", Math.abs(game.aiVehicle.y - game.arena.enemyBase.y) < 100);
+  check("the player's own flag was placed at their base", !!game.playerFlag);
+  check(
+    "the player's flag sits at playerBase",
+    game.playerFlag.x === game.arena.playerBase.x && game.playerFlag.y === game.arena.playerBase.y
+  );
+
+  console.log("[AI actually drives toward the player's flag over time]");
+  const startDist = Math.hypot(game.aiVehicle.x - game.playerFlag.x, game.aiVehicle.y - game.playerFlag.y);
+  for (let i = 0; i < 60 * 90; i++) game.update(dt); // 90 sim-seconds -- a generous budget for the long mirrored route
+  const endDist = Math.hypot(game.aiVehicle.x - game.playerFlag.x, game.aiVehicle.y - game.playerFlag.y);
+  check("the AI made real progress toward the player's flag", endDist < startDist * 0.6);
+  check("the AI vehicle actually moved from its spawn point", endDist !== startDist);
 }
 
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
