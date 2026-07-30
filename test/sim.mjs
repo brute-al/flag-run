@@ -1,8 +1,8 @@
 // Headless logic tests. Exercises Game directly (no DOM/canvas/audio — those
 // are wired up separately in main.js) to check the full mechanic set:
 // per-vehicle drift/movement, jeep-only flag pickup, weapons damaging
-// turrets, the jeep's finite-lives round-loss condition, and mid-round
-// vehicle switching at base.
+// turrets, the shared finite-lives round-loss condition across all three
+// vehicle types, and mid-round vehicle switching at base.
 
 import { Game } from "../src/game.js";
 import { VEHICLE_TYPES, Vehicle } from "../src/vehicle.js";
@@ -126,44 +126,56 @@ for (const type of ["tank", "heli"]) {
   check("firing produces no bullets (jeep has no weapon)", game.bullets.length === 0);
 }
 
-// --- 3. Jeep lives: round is lost after the 2nd jeep is destroyed ---------
-console.log("\n=== Jeep lives / round-loss ===");
+// --- 3. Lives: a shared garage across vehicle types, round lost only once
+// every type is exhausted (2 tanks, 2 helis, 3 jeeps by default) ----------
+console.log("\n=== Vehicle lives / round-loss (shared across all types) ===");
 {
   const input = makeInput();
   const game = new Game(input);
   game.chooseVehicle("jeep");
   input.set({ throttle: 0, turn: 0 });
 
-  game.health = 0;
-  game.update(dt); // 1st death -> should respawn, not end the round
-  const afterFirstDeath = game.state;
-  // Fast-forward through the respawn delay.
-  for (let i = 0; i < 200 && game.state === "respawning"; i++) game.update(dt);
-  const respawnedOk = game.state === "playing" && game.lives.jeep === 1;
+  console.log("[starting life counts]");
+  check(
+    "starts with the documented life counts (3 jeeps, 2 tanks, 2 helis)",
+    game.lives.jeep === 3 && game.lives.tank === 2 && game.lives.heli === 2
+  );
 
-  game.health = 0;
-  game.update(dt); // 2nd death -> out of jeeps, round lost
-  const afterSecondDeath = game.state;
-
-  console.log("[jeep lives]");
-  check("1st death respawns (does not end the round)", afterFirstDeath === "respawning");
-  check("respawns with 1 jeep life left", respawnedOk);
-  check("2nd death ends the round (\"lost\")", afterSecondDeath === "lost");
-}
-{
-  // Tank/heli have unlimited lives — repeated deaths should never end the round.
-  const input = makeInput();
-  const game = new Game(input);
-  game.chooseVehicle("tank");
-  let everLost = false;
-  for (let death = 0; death < 5; death++) {
+  // Kills the active vehicle, fast-forwards through the respawn delay if the
+  // round didn't end, and returns the state right after the death (before
+  // any respawn fast-forward) so callers can distinguish "respawning" from
+  // "lost" at the exact moment lives ran out.
+  function killAndRespawn() {
     game.health = 0;
     game.update(dt);
-    if (game.state === "lost") everLost = true;
+    const stateRightAfterDeath = game.state;
     for (let i = 0; i < 200 && game.state === "respawning"; i++) game.update(dt);
+    return stateRightAfterDeath;
   }
-  console.log("[tank lives]");
-  check("never runs out of lives after 5 deaths", !everLost && game.lives.tank === Infinity);
+
+  console.log("[jeep lives run out -- auto-switches to the tank instead of ending the round]");
+  killAndRespawn(); // jeep: 3 -> 2
+  killAndRespawn(); // jeep: 2 -> 1
+  const thirdJeepDeathState = killAndRespawn(); // jeep: 1 -> 0, out of jeeps
+  check("round is NOT lost once only the jeep type runs out (tank/heli remain)", thirdJeepDeathState === "respawning");
+  check("game keeps playing after auto-switching away from the jeep", game.state === "playing");
+  check("auto-switched into the tank once jeeps were exhausted", game.vehicle.type === "tank");
+  check("jeep lives are at zero", game.lives.jeep === 0);
+
+  console.log("[tank lives also run out -- auto-switches to the helicopter]");
+  killAndRespawn(); // tank: 2 -> 1
+  const secondTankDeathState = killAndRespawn(); // tank: 1 -> 0
+  check("round still not lost once the tank also runs out (heli remains)", secondTankDeathState === "respawning");
+  check("auto-switched into the helicopter once tanks were exhausted too", game.vehicle.type === "heli");
+
+  console.log("[helicopter lives run out too -- whole garage is empty, round lost]");
+  killAndRespawn(); // heli: 2 -> 1
+  const finalDeathState = killAndRespawn(); // heli: 1 -> 0, every type now exhausted
+  check("round is lost only once every vehicle type is exhausted", finalDeathState === "lost" && game.state === "lost");
+  check(
+    "all three types show zero lives left",
+    game.lives.jeep === 0 && game.lives.tank === 0 && game.lives.heli === 0
+  );
 }
 
 // --- 4. Mid-round vehicle switching at base --------------------------------
@@ -955,6 +967,57 @@ console.log("[jeep can ram too, but far weaker than the tank]");
   check("jeep has some ram damage", jeep.ramDamage > 0);
   check("tank rams much harder than the jeep", tank.ramDamage > jeep.ramDamage);
   check("helicopter has no ram damage (it flies over obstacles, never collides with them)", heli.ramDamage === 0);
+
+  console.log("[only the jeep takes self-damage from a building collision]");
+  check("jeep has collisionDamage set (it's fragile, not armored)", jeep.collisionDamage > 0);
+  check("tank has no collisionDamage (armored -- ramming costs it nothing)", tank.collisionDamage === 0);
+  check("helicopter has no collisionDamage (aerial, never collides with buildings)", heli.collisionDamage === 0);
+}
+
+console.log("[jeep ramming a building also damages the jeep itself]");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("jeep");
+  const target = makeSyntheticBuilding(400, 0);
+  game.arena.obstacles = [target];
+
+  // Same contact setup as the tank-ramming test above: already touching the
+  // building, already moving fast toward it.
+  game.vehicle.x = target.x - (target.radius + game.vehicle.radius);
+  game.vehicle.y = target.y;
+  game.vehicle.heading = 0;
+  game.vehicle.vx = 200; // well above RAM_SPEED_THRESHOLD
+  game.vehicle.vy = 0;
+
+  const startHealth = game.health;
+  input.set({ throttle: 1, turn: 0 });
+  game.update(dt);
+  const events = game.drainEvents();
+
+  check("ramming a building costs the jeep some of its own health", game.health < startHealth);
+  check("a vehicleHit event fired for the jeep's self-damage", events.includes("vehicleHit"));
+}
+
+console.log("[tank ramming a building takes no self-damage -- it's armored]");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("tank");
+  const target = makeSyntheticBuilding(400, 0);
+  game.arena.obstacles = [target];
+
+  game.vehicle.x = target.x - (target.radius + game.vehicle.radius);
+  game.vehicle.y = target.y;
+  game.vehicle.heading = 0;
+  game.vehicle.vx = 200;
+  game.vehicle.vy = 0;
+
+  const startHealth = game.health;
+  input.set({ throttle: 1, turn: 0 });
+  game.update(dt);
+
+  check("tank ramming the same way takes no self-damage", game.health === startHealth);
 }
 
 console.log("[helicopter never rams -- it's aerial and skips obstacle collision entirely]");
