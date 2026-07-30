@@ -4,6 +4,7 @@ import { Arena } from "./arena.js";
 import { Flag, Turret, Bullet, Powerup, POWERUP_INFO } from "./entities.js";
 import { drawVehicle } from "./vehicleArt.js";
 import { MAP_DATA } from "./mapData.js";
+import { ParticleSystem } from "./effects.js";
 
 const RESPAWN_DELAY = 1.6;
 
@@ -91,6 +92,10 @@ export class Game {
     this.activePowerup = null; // { type, timeLeft } while a buff is running
     this.health = this.vehicle.maxHealth;
     this.ramCooldown = 0; // see RAM_COOLDOWN in update()
+    // Purely visual: explosions, sparks, muzzle flashes, dust. See effects.js
+    // -- nothing here is read by game logic, only by draw().
+    this.particles = new ParticleSystem();
+    this._dustCooldown = 0; // throttles dust puffs while driving fast, see update()
     // Lives are per-vehicle-type and last the whole round (they persist
     // across mid-round vehicle switches and respawns). Only the jeep has a
     // finite pool — running out of jeeps ends the round.
@@ -177,6 +182,10 @@ export class Game {
   _destroyBuilding(o) {
     o.destroyed = true;
     this.events.push("buildingDestroyed");
+    // Centralized here so it fires the same way regardless of whether the
+    // building was shot down or rammed down.
+    this.particles.explosion(o.x, o.y, "#8a7a5a", 1.1);
+    this.camera.shake(6, 0.25);
     if (o.hasPowerup && !o.powerupSpawned) {
       o.powerupSpawned = true;
       this.powerupPickups.push(new Powerup(o.x, o.y, o.powerupType));
@@ -202,6 +211,10 @@ export class Game {
 
   update(dt) {
     if (this.paused) return;
+
+    // Ticks independently of state so an explosion mid-respawn (or right as
+    // the round ends) keeps animating instead of freezing on the last frame.
+    this.particles.update(dt);
 
     if (this.state === "select" || this.state === "won" || this.state === "lost") {
       return;
@@ -241,10 +254,23 @@ export class Game {
         if (d < o.radius + this.vehicle.radius + RAM_CONTACT_SLACK) {
           o.health -= this.vehicle.ramDamage;
           this.events.push("buildingHit");
+          this.particles.spark(this.vehicle.x, this.vehicle.y, "#d8c9a0");
           this.ramCooldown = RAM_COOLDOWN;
           if (o.health <= 0) this._destroyBuilding(o);
           break;
         }
+      }
+    }
+
+    // Dust kicks up behind a fast-moving grounded vehicle -- the heli is
+    // aerial and skips this, it's not kicking up gravel from the road.
+    if (!this.vehicle.isAerial) {
+      this._dustCooldown -= dt;
+      if (this.vehicle.speed > 120 && this._dustCooldown <= 0) {
+        this._dustCooldown = 0.05;
+        const backX = this.vehicle.x - Math.cos(this.vehicle.heading) * this.vehicle.radius;
+        const backY = this.vehicle.y - Math.sin(this.vehicle.heading) * this.vehicle.radius;
+        this.particles.dust(backX, backY);
       }
     }
 
@@ -280,6 +306,7 @@ export class Game {
         );
         bullet.piercing = mod.piercing;
         this.bullets.push(bullet);
+        this.particles.muzzleFlash(noseX, noseY, aimAngle, this.vehicle.weapon.label === "cannon" ? "#ffdca3" : "#fff3c4");
         this.events.push(this.vehicle.weapon.label === "cannon" ? "playerFireCannon" : "playerFireMg");
       }
     }
@@ -308,6 +335,7 @@ export class Game {
         );
         missile.piercing = mod.piercing;
         this.bullets.push(missile);
+        this.particles.muzzleFlash(noseX, noseY, this.vehicle.heading, "#ffcf8a");
         this.events.push("playerFireMissile");
       }
     }
@@ -356,7 +384,10 @@ export class Game {
     // Turrets track and fire at the vehicle.
     for (const turret of this.turrets) {
       const fired = turret.update(dt, this.vehicle.x, this.vehicle.y, this.bullets);
-      if (fired) this.events.push("turretFire");
+      if (fired) {
+        this.events.push("turretFire");
+        this.particles.muzzleFlash(turret.x, turret.y, turret.aimAngle, "#ffb37a");
+      }
     }
 
     // Bullets move; rocks provide cover for everyone; friendly bullets hit
@@ -377,6 +408,7 @@ export class Game {
           // the same one every frame while it's still overlapping it.
           if (bullet.piercing && bullet.hitTargets.has(o)) continue;
           if (Math.hypot(bullet.x - o.x, bullet.y - o.y) < o.radius + bullet.radius) {
+            this.particles.spark(bullet.x, bullet.y, bullet.friendly ? "#8fe3ff" : "#ffb37a");
             if (bullet.piercing) {
               bullet.hitTargets.add(o);
             } else {
@@ -413,7 +445,12 @@ export class Game {
             }
             turret.takeDamage(bullet.damage);
             this.events.push("turretHit");
-            if (turret.destroyed) this.events.push("turretDestroyed");
+            this.particles.spark(bullet.x, bullet.y, "#8fe3ff");
+            if (turret.destroyed) {
+              this.events.push("turretDestroyed");
+              this.particles.explosion(turret.x, turret.y, "#7a2e28", 1.3);
+              this.camera.shake(8, 0.3);
+            }
             if (!bullet.piercing) break;
           }
         }
@@ -425,6 +462,7 @@ export class Game {
           // no powerup at all) leaves it at a neutral 1.
           this.health -= bullet.damage * this._weaponModifiers().damageTakenMult;
           this.events.push("vehicleHit");
+          this.particles.spark(this.vehicle.x, this.vehicle.y, "#ff6b4a");
         }
       }
     }
@@ -432,6 +470,8 @@ export class Game {
 
     if (this.health <= 0 && this.state === "playing") {
       this.events.push("vehicleDestroyed");
+      this.particles.explosion(this.vehicle.x, this.vehicle.y, "#e8843a", 1.6);
+      this.camera.shake(12, 0.4);
       if (this.vehicle.carrying) {
         this.flag.dropAt(this.vehicle.x, this.vehicle.y);
         this.vehicle.carrying = null;
@@ -468,6 +508,9 @@ export class Game {
       const healthFrac = Math.max(0, Math.min(1, this.health / this.vehicle.maxHealth));
       drawVehicle(ctx, s.x, s.y, this.vehicle, healthFrac);
     }
+    // Drawn last (and regardless of state) so an explosion/dust cloud from
+    // the moment before a respawn keeps rendering on top of everything else.
+    this.particles.draw(ctx, this.camera, canvasW, canvasH);
   }
 
   getHudState() {
