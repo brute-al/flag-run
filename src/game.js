@@ -41,11 +41,15 @@ export class Game {
   // neighborhood layout (see mapData.js). Pass `{ useRealMap: false }` to get
   // the original procedural rock-field arena instead (used by some tests,
   // and a reasonable fallback if no map data is available).
-  // `duel`: experimental milestone-1 opponent mode (see DEPLOY_NOTES.md) --
-  // mirrors the map to twice its height (mirrorMap.js) and spawns a second,
-  // AI-driven vehicle at the mirrored base that autonomously paths toward
-  // the player's own flag along the real road network. No combat or win
-  // condition changes yet -- it's purely a driving/pathing demo so far.
+  // `duel`: experimental opponent mode (see DEPLOY_NOTES.md), staged across
+  // milestones. Mirrors the map to twice its height (mirrorMap.js) and spawns
+  // a second, AI-driven vehicle at the mirrored base that autonomously paths
+  // toward the player's own flag along the real road network (milestone 1).
+  // Milestone 2 arms it: the AI drives a tank, fires its cannon at the player
+  // when in range, and can itself be damaged/destroyed and respawn -- see
+  // _setupDuel/_spawnAI and the AI weapon block in update(). Still not here:
+  // the AI can't pick up the player's flag, and there's no win/loss condition
+  // tied to any of this yet.
   constructor(input, { useRealMap = true, duel = false } = {}) {
     this.input = input;
     this.useRealMap = useRealMap;
@@ -127,22 +131,37 @@ export class Game {
       this.aiVehicle = null;
       this.playerFlag = null;
       this.aiDriver = null;
+      this.aiHealth = 0;
+      this.aiRespawnTimer = 0;
     }
 
     this.events.push("roundReset");
   }
 
-  // Sets up the experimental milestone-1 AI opponent: its own vehicle at the
-  // mirrored base, the player's own flag (its target, sitting undefended at
-  // playerBase for now), and a route computed once at round start (the
-  // target doesn't move yet, so there's no need to re-path every frame).
+  // Sets up the experimental AI opponent for a whole new round: the player's
+  // own flag (its target, sitting undefended at playerBase for now -- not
+  // pickup-able by the AI yet, see the class-level comment above) and its own
+  // AIDriver instance, then defers the vehicle/route setup to _spawnAI() so
+  // the exact same logic can be reused for mid-round respawns.
   _setupDuel() {
+    this.playerFlag = new Flag(this.arena.playerBase.x, this.arena.playerBase.y);
+    this.aiDriver = new AIDriver();
+    this.aiRespawnTimer = 0;
+    this._spawnAI();
+  }
+
+  // (Re)spawns the AI opponent at its base with full health and a fresh
+  // route toward the player's flag -- used both at round start (_setupDuel)
+  // and after the AI's vehicle is destroyed (see the death handling in
+  // update()). Milestone 2: the AI now drives an armed tank instead of
+  // milestone 1's unarmed jeep, so it can actually fight back while pathing
+  // toward the flag (see aiDriver.js's _computeCombat).
+  _spawnAI() {
     const base = this.arena.enemyBase; // the far/mirrored base is the AI's home
     // Face north (into the arena, toward the player) -- the mirror image of
     // _spawnVehicleAtBase's "spawn south of playerBase, facing south" setup.
-    this.aiVehicle = new Vehicle(base.x, base.y - 40, -Math.PI / 2, "jeep");
-    this.playerFlag = new Flag(this.arena.playerBase.x, this.arena.playerBase.y);
-    this.aiDriver = new AIDriver();
+    this.aiVehicle = new Vehicle(base.x, base.y - 40, -Math.PI / 2, "tank");
+    this.aiHealth = this.aiVehicle.maxHealth;
     const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.playerFlag.x, this.playerFlag.y);
     this.aiDriver.setRoute(route);
   }
@@ -324,14 +343,56 @@ export class Game {
 
     // Experimental duel-mode AI opponent: drives itself along the route
     // computed once at round start (see _setupDuel) using the same physics
-    // and obstacle collision as the player. No combat/firing yet -- see
-    // aiDriver.js's header comment.
+    // and obstacle collision as the player, and (once its respawn timer has
+    // cleared) fights back -- see aiDriver.js's _computeCombat. While
+    // aiRespawnTimer is counting down the AI is destroyed and simply absent
+    // (no update, no draw -- see draw() below) until it ticks over and
+    // _spawnAI() rebuilds it fresh at its base, mirroring the player's own
+    // "respawning" state.
     if (this.duel && this.aiVehicle) {
-      this.aiDriver.update(this.aiVehicle, dt);
-      this.aiVehicle.update(dt, this.aiDriver.getVector());
-      this.arena.clampToBounds(this.aiVehicle);
-      if (!this.aiVehicle.isAerial) {
-        this.arena.resolveObstacleCollisions(this.aiVehicle);
+      if (this.aiRespawnTimer > 0) {
+        this.aiRespawnTimer -= dt;
+        if (this.aiRespawnTimer <= 0) {
+          this._spawnAI();
+        }
+      } else {
+        this.aiDriver.update(this.aiVehicle, dt, this.vehicle);
+        this.aiVehicle.update(dt, this.aiDriver.getVector());
+        this.arena.clampToBounds(this.aiVehicle);
+        if (!this.aiVehicle.isAerial) {
+          this.arena.resolveObstacleCollisions(this.aiVehicle);
+        }
+
+        // AI opponent's weapon (milestone 2): fires along its independently-
+        // aimed turret exactly like the player's own tank cannon below --
+        // see aiDriver.js's _computeCombat for the aim/engagement-range/fire
+        // decision. Marked non-friendly (not the player's own powerup
+        // modifiers) so it damages the player vehicle via the same bullet-
+        // vs-player-vehicle collision handling turret fire already uses
+        // further down, not the friendly-bullet-vs-turret path.
+        if (this.aiVehicle.weapon) {
+          this.aiVehicle.weapon.cooldown -= dt;
+          if (this.aiDriver.isFiring() && this.aiVehicle.weapon.cooldown <= 0) {
+            this.aiVehicle.weapon.cooldown = this.aiVehicle.weapon.fireInterval;
+            const aimAngle = this.aiVehicle.hasTurret ? this.aiVehicle.turretAngle : this.aiVehicle.heading;
+            const spread = (Math.random() - 0.5) * 2 * this.aiVehicle.weapon.spread;
+            const noseX = this.aiVehicle.x + Math.cos(aimAngle) * (this.aiVehicle.radius + 6);
+            const noseY = this.aiVehicle.y + Math.sin(aimAngle) * (this.aiVehicle.radius + 6);
+            const bullet = new Bullet(
+              noseX,
+              noseY,
+              aimAngle + spread,
+              this.aiVehicle.weapon.bulletSpeed,
+              this.aiVehicle.weapon.damage,
+              false,
+              false,
+              4
+            );
+            this.bullets.push(bullet);
+            this.particles.muzzleFlash(noseX, noseY, aimAngle, "#ffb37a");
+            this.events.push("aiFireCannon");
+          }
+        }
       }
     }
 
@@ -518,6 +579,34 @@ export class Game {
             if (!bullet.piercing) break;
           }
         }
+
+        // Milestone 2: friendly (player) fire can also hit the duel-mode AI
+        // opponent, exactly like it hits a turret above -- same distance
+        // check, same piercing/hitTargets bookkeeping, just against
+        // aiVehicle instead. `!bullet.dead` guards against a non-piercing
+        // round that already spent itself on a turret this same frame.
+        if (this.duel && this.aiVehicle && this.aiRespawnTimer <= 0 && !bullet.dead) {
+          if (!bullet.piercing || !bullet.hitTargets.has(this.aiVehicle)) {
+            const dAi = Math.hypot(bullet.x - this.aiVehicle.x, bullet.y - this.aiVehicle.y);
+            if (dAi < bullet.radius + this.aiVehicle.radius) {
+              if (bullet.piercing) {
+                bullet.hitTargets.add(this.aiVehicle);
+              } else {
+                bullet.dead = true;
+              }
+              this.aiHealth -= bullet.damage;
+              this.events.push("vehicleHit");
+              this.particles.spark(this.aiVehicle.x, this.aiVehicle.y, "#8fe3ff");
+              if (this.aiHealth <= 0) {
+                this.aiHealth = 0;
+                this.events.push("vehicleDestroyed");
+                this.particles.fieryExplosion(this.aiVehicle.x, this.aiVehicle.y, 1.6);
+                this.camera.shake(10, 0.35);
+                this.aiRespawnTimer = RESPAWN_DELAY;
+              }
+            }
+          }
+        }
       } else {
         const d = Math.hypot(bullet.x - this.vehicle.x, bullet.y - this.vehicle.y);
         if (d < bullet.radius + this.vehicle.radius) {
@@ -591,11 +680,10 @@ export class Game {
       const healthFrac = Math.max(0, Math.min(1, this.health / this.vehicle.maxHealth));
       drawVehicle(ctx, s.x, s.y, this.vehicle, healthFrac);
     }
-    if (this.duel && this.aiVehicle) {
+    if (this.duel && this.aiVehicle && this.aiRespawnTimer <= 0) {
       const s = this.camera.worldToScreen(this.aiVehicle.x, this.aiVehicle.y, canvasW, canvasH);
-      // Full health bar -- the AI can't be damaged yet (no combat this
-      // milestone), so there's nothing to reflect here.
-      drawVehicle(ctx, s.x, s.y, this.aiVehicle, 1);
+      const aiHealthFrac = Math.max(0, Math.min(1, this.aiHealth / this.aiVehicle.maxHealth));
+      drawVehicle(ctx, s.x, s.y, this.aiVehicle, aiHealthFrac);
     }
     // Drawn last (and regardless of state) so an explosion/dust cloud from
     // the moment before a respawn keeps rendering on top of everything else.

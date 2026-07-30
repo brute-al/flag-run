@@ -171,6 +171,13 @@ export class SoundEngine {
       case "playerFireCannon":
         this._playCannonShot();
         break;
+      // Duel mode's AI opponent (milestone 2) fires the same tank cannon the
+      // player does -- same sound, kept as its own event name (rather than
+      // reusing "playerFireCannon") so the event stream stays honest about
+      // who actually fired.
+      case "aiFireCannon":
+        this._playCannonShot();
+        break;
       case "playerFireMg":
         this._playChaingunShot();
         break;

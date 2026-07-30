@@ -5,11 +5,12 @@
 // Vehicle can be driven by it exactly the way the player's vehicle is
 // driven: `vehicle.update(dt, aiDriver.getVector())`.
 //
-// Deliberately dumb for now -- milestone 1 of the duel-mode feature (see
-// DEPLOY_NOTES.md) is "symmetric map + an AI vehicle that drives toward
-// your flag, no combat yet". isFiring()/isFiring2() are always false;
-// combat is a later milestone. It also doesn't re-plan mid-route or avoid
-// the player -- it just follows the road route it was given.
+// Milestone 1 (see DEPLOY_NOTES.md) was drive-only: "symmetric map + an AI
+// vehicle that drives toward your flag, no combat yet". Milestone 2 adds
+// combat on top of that same driving logic -- see _computeCombat() below --
+// while staying just as "dumb" everywhere else: it doesn't re-plan mid-route,
+// dodge, retreat, or take cover, it just follows the road route it was given
+// and opportunistically shoots at a target when one's given and in range.
 // A vehicle's real minimum turning radius grows with speed (turnRate's
 // effectiveness tapers off the faster you're going -- see Vehicle.update's
 // turnSpeedFalloff). At the jeep's top speed that radius is 300+ units, so
@@ -43,6 +44,19 @@ const UNSTICK_DURATION = 0.7; // seconds spent reversing out before retrying
 // stalemate.
 const MAX_UNSTICK_ATTEMPTS_PER_WAYPOINT = 3;
 
+// Combat (milestone 2): meaningful only for an armed, turreted vehicle
+// (currently just the tank) -- a no-op for anything else, like milestone 1's
+// unarmed jeep AI, so it's always safe to call regardless of what's driving.
+// "Simple rusher" per the design brief the user picked: the hull keeps
+// driving toward its objective via the waypoint-following logic below no
+// matter what's happening with the target, while the turret (bolted to the
+// hull, see vehicle.js) independently swivels toward and fires at the target
+// whenever it's within range and roughly aimed -- it never breaks off its
+// route to chase, retreat, or take cover.
+const ENGAGEMENT_RANGE = 560; // roughly matches a defensive turret's own range
+const TURRET_TURN_GAIN = 3.2; // how eagerly the turret sweeps onto the target
+const FIRE_AIM_TOLERANCE = 0.12; // radians of aim error still "close enough" to shoot
+
 export class AIDriver {
   constructor() {
     this.route = [];
@@ -53,6 +67,7 @@ export class AIDriver {
     this._unstickTurn = 1;
     this._stuckWaypointIndex = -1;
     this._stuckAttempts = 0;
+    this._firing = false; // combat: whether the weapon should fire this frame
   }
 
   // Replace the current route (e.g. once at the start of a round). `route`
@@ -66,17 +81,51 @@ export class AIDriver {
     return this.route.length === 0 || this.waypointIndex >= this.route.length;
   }
 
-  // Call once per frame with the vehicle it's driving and the frame's dt,
-  // before reading getVector() -- it needs the vehicle's current
-  // position/heading/speed to compute this frame's steering (and to notice
-  // when it's stuck), which a plain Input source never needs since it just
-  // reflects raw key state.
-  update(vehicle, dt) {
-    const STOPPED = { throttle: 0, turn: 0, turretTurn: 0 };
+  // Turret aim + fire decision. Independent of the driving state machine in
+  // update() below -- computed unconditionally every frame so combat still
+  // works whether the hull is cruising toward a waypoint, stuck and
+  // reversing, or parked at the end of its route. Returns
+  // { turretTurn, firing }; update() folds turretTurn into whatever
+  // `_vector` it builds this frame instead of hardcoding it to 0.
+  _computeCombat(vehicle, target) {
+    if (!target || !vehicle.hasTurret || !vehicle.weapon) {
+      return { turretTurn: 0, firing: false };
+    }
+
+    const dx = target.x - vehicle.x;
+    const dy = target.y - vehicle.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > ENGAGEMENT_RANGE) {
+      // Out of range -- let the turret just ride along with the hull
+      // (turretTurn 0) instead of swiveling toward a target it can't hit yet.
+      return { turretTurn: 0, firing: false };
+    }
+
+    const targetAngle = Math.atan2(dy, dx);
+    let turretDiff = targetAngle - vehicle.turretAngle;
+    turretDiff = Math.atan2(Math.sin(turretDiff), Math.cos(turretDiff));
+
+    return {
+      turretTurn: Math.max(-1, Math.min(1, turretDiff * TURRET_TURN_GAIN)),
+      firing: Math.abs(turretDiff) < FIRE_AIM_TOLERANCE,
+    };
+  }
+
+  // Call once per frame with the vehicle it's driving, the frame's dt, and
+  // (optionally) a combat target such as the player's vehicle, before
+  // reading getVector()/isFiring(). `target` defaults to null and is simply
+  // ignored for a vehicle with no weapon/turret, so existing callers that
+  // only care about driving (e.g. milestone 1's jeep AI, and tests) can keep
+  // calling update(vehicle, dt) unchanged.
+  update(vehicle, dt, target = null) {
+    const combat = this._computeCombat(vehicle, target);
+    this._firing = combat.firing;
+
+    const STOPPED = { throttle: 0, turn: 0, turretTurn: combat.turretTurn };
 
     if (this._unstickTimer > 0) {
       this._unstickTimer -= dt;
-      this._vector = { throttle: -1, turn: this._unstickTurn, turretTurn: 0 };
+      this._vector = { throttle: -1, turn: this._unstickTurn, turretTurn: combat.turretTurn };
       return;
     }
 
@@ -107,6 +156,8 @@ export class AIDriver {
     // endlessly orbiting on top of the destination.
     if (this.waypointIndex === this.route.length - 1 && dist < WAYPOINT_ARRIVAL_RADIUS) {
       this.waypointIndex = this.route.length;
+      // Parked at the destination doesn't mean combat stops -- STOPPED
+      // already carries this frame's real turretTurn, not a hardcoded 0.
       this._vector = STOPPED;
       this._stuckTimer = 0;
       return;
@@ -151,14 +202,14 @@ export class AIDriver {
 
         this._unstickTimer = UNSTICK_DURATION;
         this._unstickTurn = turn >= 0 ? -1 : 1;
-        this._vector = { throttle: -1, turn: this._unstickTurn, turretTurn: 0 };
+        this._vector = { throttle: -1, turn: this._unstickTurn, turretTurn: combat.turretTurn };
         return;
       }
     } else {
       this._stuckTimer = 0;
     }
 
-    this._vector = { throttle, turn, turretTurn: 0 };
+    this._vector = { throttle, turn, turretTurn: combat.turretTurn };
   }
 
   getVector() {
@@ -166,7 +217,7 @@ export class AIDriver {
   }
 
   isFiring() {
-    return false;
+    return this._firing;
   }
 
   isFiring2() {
