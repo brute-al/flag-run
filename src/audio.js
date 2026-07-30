@@ -4,11 +4,17 @@
 // CC0/royalty-free recordings (see sfx/ -- each one's source page is linked
 // in DEPLOY_NOTES.md) layered in over the synthesized version, because a
 // real recording reads as "war" in a way a pure oscillator/noise burst
-// can't. Everything else (engine hum, missile whoosh, pickup chimes, the
-// run-home music) is still fully synthesized. If a sample fails to load for
-// any reason (slow network, blocked request, very old browser), every
-// sample-backed cue below quietly falls back to its original synthesized
-// version, so sound is never silently missing.
+// can't. Everything else (engine hum, missile whoosh, pickup chimes) is
+// still fully synthesized. If a sample fails to load for any reason (slow
+// network, blocked request, very old browser), every sample-backed cue
+// below quietly falls back to its original synthesized version, so sound is
+// never silently missing.
+//
+// The flag-run music cue itself is NOT handled here anymore -- it used to be
+// a synthesized loop (`RunHomeMusic`) started on flagPickup, but that meant
+// it played simultaneously underneath the real "flag-getting" song from
+// music.js's MusicPlayer, layering an unwanted 8-bit-sounding loop under a
+// real recording. music.js now owns that moment entirely.
 
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
@@ -30,7 +36,6 @@ export class SoundEngine {
     this.ctx = new AudioContextClass();
     this.noiseBuffer = this._makeNoiseBuffer();
     this._buildEngineHum();
-    this.tension = new RunHomeMusic(this.ctx, this.noiseBuffer);
 
     // Sample buffers populate asynchronously; every sample-backed cue checks
     // `this.samples[name]` before playing and falls back to its
@@ -156,21 +161,12 @@ export class SoundEngine {
         break;
       case "flagPickup":
         this._playPickup();
-        // Only the jeep can ever trigger a pickup, so this is exactly the
-        // "now haul it home under fire" moment -- kick in the tense loop.
-        this.tension.start();
+        // The "now haul it home" music moment is handled by music.js's
+        // MusicPlayer (a real song crossfades in) -- no synthesized loop
+        // here anymore, see this file's header comment.
         break;
       case "flagCapture":
         this._playFanfare();
-        this.tension.stop();
-        break;
-      case "flagDropped":
-        // Carrier went down mid-run and the flag hit the ground -- the
-        // "hauling it home" tension is over until it's picked up again.
-        this.tension.stop();
-        break;
-      case "roundReset":
-        this.tension.stop(true);
         break;
       case "playerFireCannon":
         this._playCannonShot();
@@ -496,125 +492,5 @@ export class SoundEngine {
       osc.start(start);
       osc.stop(start + note.dur + 0.02);
     }
-  }
-}
-
-// A small looping "let's go" cue for the jeep's run home with the flag: a
-// bright, driving bass riff in a consonant major key under a syncopated
-// upbeat and a crisp shaker-like tick -- meant to feel like a triumphant
-// getaway, not a horror-movie dread drone (that's what this replaced).
-// Entirely synthesized (oscillators + filtered noise), same as every other
-// sound in this file -- nothing sampled, so there's no licensing question
-// and no audio file to fetch. Runs on a standard Web Audio "lookahead
-// scheduler" (schedule a little ahead of real time, re-check on a short
-// interval) so the beat stays tight even though setTimeout itself isn't
-// precise.
-class RunHomeMusic {
-  constructor(ctx, sharedNoiseBuffer) {
-    this.ctx = ctx;
-    this.noiseBuffer = sharedNoiseBuffer;
-    this.playing = false;
-    this.tempo = 150; // bpm -- brisk and driving, a sprint not a dirge
-    this.beatDuration = 60 / this.tempo;
-    this.nextNoteTime = 0;
-    this.beatIndex = 0;
-    this.schedulerTimer = null;
-
-    // An 8-beat bass riff walking a bright, consonant A-major-flavored
-    // progression (A - C#4 - E4 - A - B3 - C#4) -- replaces the old drone's
-    // deliberately dissonant interval with something that actually resolves.
-    this.bassNotes = [220, 220, 277.18, 329.63, 220, 220, 246.94, 277.18];
-
-    this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0;
-    this.masterGain.connect(this.ctx.destination);
-  }
-
-  start() {
-    if (this.playing) return;
-    this.playing = true;
-    const now = this.ctx.currentTime;
-    this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(1, now, 0.15);
-    this.beatIndex = 0;
-    this.nextNoteTime = now + 0.05;
-    this._scheduleLoop();
-  }
-
-  // `hard` skips the fade-out, used on a full round reset where we want
-  // silence immediately rather than a lingering tail into the next round.
-  stop(hard = false) {
-    if (!this.playing && !hard) return;
-    this.playing = false;
-    const now = this.ctx.currentTime;
-    this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(0, now, hard ? 0.05 : 0.3);
-    if (this.schedulerTimer) {
-      clearTimeout(this.schedulerTimer);
-      this.schedulerTimer = null;
-    }
-  }
-
-  _scheduleLoop() {
-    if (!this.playing) return;
-    // Schedule any beats that fall within the next 150ms, then check back
-    // in 50ms -- keeps the actual note timing sample-accurate (set via the
-    // AudioContext clock) regardless of setTimeout jitter.
-    while (this.nextNoteTime < this.ctx.currentTime + 0.15) {
-      this._scheduleBeat(this.beatIndex, this.nextNoteTime);
-      this.beatIndex++;
-      this.nextNoteTime += this.beatDuration;
-    }
-    this.schedulerTimer = setTimeout(() => this._scheduleLoop(), 50);
-  }
-
-  _scheduleBeat(index, time) {
-    // A punchy, filtered plucked bass note on every beat, stepping through
-    // the riff -- the harmonic engine of the cue.
-    const note = this.bassNotes[index % this.bassNotes.length];
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(note, time);
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(1800, time);
-    filter.frequency.exponentialRampToValueAtTime(500, time + 0.18);
-    gain.gain.setValueAtTime(0.001, time);
-    gain.gain.exponentialRampToValueAtTime(0.24, time + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
-    osc.connect(filter).connect(gain).connect(this.masterGain);
-    osc.start(time);
-    osc.stop(time + 0.24);
-
-    // A bright triangle note on the off-beat ("and"), an octave up from the
-    // bass -- this syncopation is what gives the loop forward momentum
-    // instead of a flat, plodding pulse.
-    const upTime = time + this.beatDuration / 2;
-    const up = this.ctx.createOscillator();
-    const upGain = this.ctx.createGain();
-    up.type = "triangle";
-    up.frequency.value = note * 2;
-    upGain.gain.setValueAtTime(0.001, upTime);
-    upGain.gain.exponentialRampToValueAtTime(0.1, upTime + 0.01);
-    upGain.gain.exponentialRampToValueAtTime(0.001, upTime + 0.1);
-    up.connect(upGain).connect(this.masterGain);
-    up.start(upTime);
-    up.stop(upTime + 0.12);
-
-    // A crisp shaker-like tick every beat (louder on the downbeat), keeping
-    // the groove feeling energetic rather than sparse.
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
-    const hatFilter = this.ctx.createBiquadFilter();
-    hatFilter.type = "highpass";
-    hatFilter.frequency.value = 6000;
-    const tickGain = this.ctx.createGain();
-    tickGain.gain.setValueAtTime(0.001, time);
-    tickGain.gain.exponentialRampToValueAtTime(index % 2 === 0 ? 0.1 : 0.05, time + 0.003);
-    tickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
-    src.connect(hatFilter).connect(tickGain).connect(this.masterGain);
-    src.start(time);
-    src.stop(time + 0.05);
   }
 }

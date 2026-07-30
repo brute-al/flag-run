@@ -120,10 +120,14 @@ function loop(now) {
   flagStatusEl.textContent = hud.flagStatus;
   messageEl.textContent = hud.message;
 
-  const livesText = Number.isFinite(hud.jeepLives) ? `JEEPS: ${hud.jeepLives}` : "";
+  // Every vehicle type has its own finite life pool now (see game.js), so
+  // show all three rather than just the jeep's.
+  const jeepsText = hud.lives ? `JEEPS: ${hud.lives.jeep}` : "";
+  const tanksText = hud.lives ? `TANKS: ${hud.lives.tank}` : "";
+  const helisText = hud.lives ? `HELIS: ${hud.lives.heli}` : "";
   const weaponText = hud.weaponLabel ? `WEAPON: ${hud.weaponLabel.toUpperCase()} (SPACE)` : "";
   const weapon2Text = hud.weapon2Label ? `${hud.weapon2Label.toUpperCase()} (F)` : "";
-  statusLineEl.textContent = [livesText, weaponText, weapon2Text].filter(Boolean).join("   ·   ");
+  statusLineEl.textContent = [jeepsText, tanksText, helisText, weaponText, weapon2Text].filter(Boolean).join("   ·   ");
 
   if (hud.powerupLabel) {
     powerupStatusEl.textContent = `${hud.powerupLabel} ${Math.ceil(hud.powerupTimeLeft)}s`;

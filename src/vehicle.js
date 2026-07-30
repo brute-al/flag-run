@@ -9,14 +9,18 @@
 // jeep is fast and loose, tank is slow and planted with a big health pool,
 // heli is fast and floaty and (via `isAerial`) ignores ground obstacles.
 // `lives`: how many times this vehicle type can be destroyed and redeployed
-// before it's gone for good. Infinity = expendable support vehicle. The jeep
-// is the only flag carrier (`canCarryFlag`), so its lives are the actual
-// win/loss clock for the round; heavy vehicles exist to clear the way and
-// can be lost freely.
+// before that type is gone for the round. Every type now has a finite pool
+// (2 tanks, 2 helis, 3 jeeps) that persists across respawns/switches; the
+// round is only lost once every type's lives are exhausted (see game.js's
+// death handling), not the moment any single type runs out -- running out of
+// one type just means the game auto-switches you into whichever type still
+// has lives left. The jeep is the only flag carrier (`canCarryFlag`), so
+// losing all your jeeps doesn't end the round outright, but it does mean the
+// flag can never be picked up again until the round resets.
 export const VEHICLE_TYPES = {
   jeep: {
     label: "Jeep",
-    description: "Fast, light, unarmed — the only ride that can grab the flag. 2 lives: lose both and the round's over.",
+    description: "Fast, light, unarmed — the only ride that can grab the flag. Very fragile: 3 lives, and ramming a building bruises the jeep itself, not just the building.",
     accel: 420,
     reverseAccel: 260,
     maxSpeed: 340,
@@ -29,17 +33,22 @@ export const VEHICLE_TYPES = {
     maxHealth: 100,
     isAerial: false,
     canCarryFlag: true,
-    lives: 2,
+    lives: 3,
     weapon: null,
     // Ramming: hitting a destructible building at speed chips away at it.
     // The jeep is light -- it can nudge a weak building down eventually, but
     // it's a poor substitute for the tank's cannon.
     ramDamage: 5,
+    // Unlike the armored tank, the jeep isn't built to take a hit: slamming
+    // into a building at speed costs the jeep itself mild/moderate health
+    // too (see the ram-handling block in game.js), on top of whatever damage
+    // it deals to the building. "Precious and important, but very weak."
+    collisionDamage: 10,
   },
   tank: {
     label: "Tank",
     description:
-      "Slow, armored, packs a cannon with a turret you traverse using Q/E (or a controller's shoulder buttons) — the turret is bolted to the hull, so it turns along with you as you drive, but Q/E swings it to whatever offset you want and holds it there. Clear turrets so the jeep can get through. Unlimited redeploys.",
+      "Slow, armored, packs a cannon with a turret you traverse using Q/E (or a controller's shoulder buttons) — the turret is bolted to the hull, so it turns along with you as you drive, but Q/E swings it to whatever offset you want and holds it there. Clear turrets so the jeep can get through. 2 lives.",
     accel: 260,
     reverseAccel: 150,
     maxSpeed: 210,
@@ -52,7 +61,7 @@ export const VEHICLE_TYPES = {
     maxHealth: 180,
     isAerial: false,
     canCarryFlag: false,
-    lives: Infinity,
+    lives: 2,
     weapon: { damage: 30, fireInterval: 0.9, bulletSpeed: 520, spread: 0.02, label: "cannon" },
     // Turret traverse: the turret rides along with the hull (see the
     // heading-delta logic in Vehicle.update below), and `turretTurn` input
@@ -61,13 +70,15 @@ export const VEHICLE_TYPES = {
     hasTurret: true,
     turretTurnRate: 3.2,
     // Heavy and armored -- the tank can straight-up bulldoze a weak building
-    // by ramming it repeatedly, on top of shooting it.
+    // by ramming it repeatedly, on top of shooting it. Its armor means it
+    // takes no extra self-damage from the impact (no collisionDamage), unlike
+    // the jeep.
     ramDamage: 22,
   },
   heli: {
     label: "Helicopter",
     description:
-      "Fast, fragile. The stick moves it -- forward/back along the nose, left/right strafes sideways -- while Q/E (or a controller's shoulder buttons) spin the nose independently, so you can hover, rotate to face any way, then peel off in that direction. Chaingun (SPACE) for direct fire; missiles (F) arc over rooftops to reach elevated turrets. Unlimited redeploys.",
+      "Fast, fragile. The stick moves it -- forward/back along the nose, left/right strafes sideways -- while Q/E (or a controller's shoulder buttons) spin the nose independently, so you can hover, rotate to face any way, then peel off in that direction. Chaingun (SPACE) for direct fire; missiles (F) arc over rooftops to reach elevated turrets. 2 lives.",
     accel: 360,
     reverseAccel: 220,
     maxSpeed: 380,
@@ -80,7 +91,7 @@ export const VEHICLE_TYPES = {
     maxHealth: 70,
     isAerial: true,
     canCarryFlag: false,
-    lives: Infinity,
+    lives: 2,
     weapon: { damage: 7, fireInterval: 0.12, bulletSpeed: 600, spread: 0.06, label: "chaingun" },
     // Secondary weapon, heli-only: slower and heavier-hitting than the
     // chaingun, and flagged so its bullets skip building collision (see
@@ -118,6 +129,10 @@ export class Vehicle {
     // speed, per hit (see Game's ramCooldown handling). 0 for aerial types,
     // which never collide with ground obstacles in the first place.
     this.ramDamage = preset.ramDamage || 0;
+    // How much the vehicle itself takes back from that same impact -- only
+    // the jeep has this (see VEHICLE_TYPES.jeep above); 0 for everything
+    // else, so ramming costs the tank nothing but a building's health.
+    this.collisionDamage = preset.collisionDamage || 0;
 
     // Weapon state travels with the vehicle instance so cooldown resets
     // cleanly on respawn/switch. `null` for unarmed vehicles (the jeep).

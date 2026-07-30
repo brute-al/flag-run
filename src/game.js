@@ -255,6 +255,13 @@ export class Game {
           o.health -= this.vehicle.ramDamage;
           this.events.push("buildingHit");
           this.particles.spark(this.vehicle.x, this.vehicle.y, "#d8c9a0");
+          // The jeep isn't armored like the tank -- ramming a building dings
+          // its own health too (see Vehicle.collisionDamage), so plowing
+          // through the neighborhood is a real risk for it, not a free move.
+          if (this.vehicle.collisionDamage > 0) {
+            this.health -= this.vehicle.collisionDamage;
+            this.events.push("vehicleHit");
+          }
           this.ramCooldown = RAM_COOLDOWN;
           if (o.health <= 0) this._destroyBuilding(o);
           break;
@@ -490,14 +497,27 @@ export class Game {
       const type = this.vehicle.type;
       if (Number.isFinite(this.lives[type])) this.lives[type] -= 1;
 
-      if (this.lives[type] <= 0) {
+      // Every vehicle type now has its own finite life pool (2 tanks, 2
+      // helis, 3 jeeps by default -- see VEHICLE_TYPES). The round is only
+      // lost once the whole garage is empty, not the moment any single type
+      // runs dry: if this type is out but another still has a life left,
+      // auto-switch into it for the next respawn instead of ending the round.
+      const anyLivesLeft = Object.values(this.lives).some((n) => n > 0);
+      if (!anyLivesLeft) {
         this.state = "lost";
-        const label = VEHICLE_TYPES[type].label.toUpperCase();
-        this.message = `OUT OF ${label}S — ROUND LOST — press R to try again`;
+        this.message = "OUT OF VEHICLES — ROUND LOST — press R to try again";
       } else {
         this.state = "respawning";
         this.respawnTimer = RESPAWN_DELAY;
-        this.message = "VEHICLE DESTROYED — respawning...";
+        if (this.lives[type] <= 0) {
+          const nextType = Object.keys(this.lives).find((t) => this.lives[t] > 0);
+          this.vehicleType = nextType;
+          const outLabel = VEHICLE_TYPES[type].label.toUpperCase();
+          const nextLabel = VEHICLE_TYPES[nextType].label.toUpperCase();
+          this.message = `OUT OF ${outLabel}S — respawning as ${nextLabel}...`;
+        } else {
+          this.message = "VEHICLE DESTROYED — respawning...";
+        }
       }
     }
   }
@@ -520,7 +540,9 @@ export class Game {
   }
 
   getHudState() {
-    const jeepLives = this.lives ? this.lives.jeep : VEHICLE_TYPES.jeep.lives;
+    const lives = this.lives
+      ? { ...this.lives }
+      : Object.fromEntries(Object.keys(VEHICLE_TYPES).map((k) => [k, VEHICLE_TYPES[k].lives]));
     return {
       healthPct: this.state === "select" ? 1 : Math.max(0, this.health / this.vehicle.maxHealth),
       flagStatus: this.flag.carrier
@@ -530,7 +552,7 @@ export class Game {
         : "FLAG: at enemy base",
       message: this.message,
       state: this.state,
-      jeepLives,
+      lives,
       weaponLabel: this.vehicle && this.vehicle.weapon ? this.vehicle.weapon.label : null,
       weapon2Label: this.vehicle && this.vehicle.weapon2 ? this.vehicle.weapon2.label : null,
       canSwap: this.state === "playing" && this.isAtOwnBase(),
