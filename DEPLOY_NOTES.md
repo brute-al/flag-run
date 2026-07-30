@@ -3,6 +3,27 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- **IMPORTANT WORKFLOW LESSON (2026-07-30):** After clicking "Commit changes"
+  on GitHub's web upload UI, two commits in a row silently failed to land
+  (the page navigated, no visible error, but the file's own commit history
+  on GitHub showed the change never actually happened -- confirmed by
+  checking `github.com/brute-al/flag-run/commits/main/<path>` per file).
+  This was only caught because the user reported "I don't see the gold
+  buildings" after I'd claimed the deploy was done. **From now on, after
+  every commit-changes click, take a screenshot and/or check that specific
+  file's commit history page before moving to the next upload -- do not just
+  trust the upload tool's "uploaded N files" confirmation or a final
+  `list_deployments` READY status, since a same-commit-message deploy can
+  still be building off stale file content if the commit itself silently
+  no-opped.** Also note: `raw.githubusercontent.com` is CDN-cached (can lag
+  a real commit by several minutes) -- verify against the actual Vercel
+  deployment URL (or `github.com/.../commits/main/<path>`), not raw.
+- Added a particle/effects pass for visual "pizzazz": explosions, sparks,
+  muzzle flashes, dust, and camera screen shake on big impacts. New file
+  `src/effects.js` (`ParticleSystem`), small shake extension to
+  `src/camera.js`. Purely decorative -- wired into `game.js` at existing
+  event sites (fire, hit, destroy) but never reads/writes gameplay state.
+  10 new tests added, all passing.
 - Powerup buildings now render gold with a pulsing halo (`_drawBuilding` in
   `arena.js`) instead of being invisible until destroyed — the whole point
   was to give players something to actively hunt down. Added a 4th powerup,

@@ -80,6 +80,20 @@ spot twice.
    except the jeep, which only gets 2 lives total. Lose both and it's
    "OUT OF JEEPS — ROUND LOST."
 
+## Effects
+
+Explosions, sparks, muzzle flashes, and dust give combat some visual weight:
+firing kicks off a muzzle flash at the gun tip, every bullet impact throws a
+quick spark, a destroyed building blows apart into flying debris and smoke,
+and a destroyed vehicle or turret does the same but bigger. Big destructions
+(vehicle, turret, building) also kick the camera with a short screen shake so
+they read as an actual impact, not just a health bar dropping to zero.
+Driving fast in a ground vehicle kicks up a trail of dust behind it (the
+helicopter skips this — it's flying, not kicking up gravel). All of this
+lives in `src/effects.js` (`ParticleSystem`) plus a small shake extension to
+`src/camera.js`; it's purely decorative and never touches game state, so it
+can't affect anything the headless test suite checks.
+
 ## Art style & audio
 
 Visuals are flat-color "toon" shading rather than gradients: bold black
@@ -150,7 +164,8 @@ src/
   input.js        keyboard -> {throttle, turn} mapping
   vehicle.js      arcade drift physics + vehicle type presets (jeep/tank/heli)
   vehicleArt.js   per-vehicle-type canvas rendering (the toon art style)
-  camera.js       lerp-follow world camera
+  camera.js       lerp-follow world camera + screen shake
+  effects.js      particle system -- explosions, sparks, muzzle flashes, dust
   arena.js        world bounds/obstacles/roads/bases -- procedural or real-map, same shape either way
   mapData.js      generated neighborhood data (buildings + roads), see "Real-world map" below
   entities.js     Flag, Turret, Bullet
@@ -180,6 +195,8 @@ bases, and capture/win mechanics still work with real obstacles in the mix.
   shader; simple box/cylinder geometry is enough, no real 3D art assets
   needed. The physics/game-state code in `vehicle.js` and `game.js` doesn't
   touch the canvas at all, so this would be a renderer swap, not a rewrite.
+  (A smaller first pass at "more visual pizzazz" already shipped within the
+  current 2D canvas renderer — see "Effects" above — without needing this.)
 - Destructible base structures instead of a fixed turret pair.
 - A second enemy base / capture point for a real back-and-forth match, or a
   simple AI opponent doing the same flag-run against you.
