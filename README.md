@@ -41,6 +41,21 @@ finishing the mission themselves.
 Each has its own stats (top speed, grip, turn rate, health, weapon) defined
 in `src/vehicle.js`, and its own silhouette in `src/vehicleArt.js`.
 
+**Ramming.** Ground vehicles (jeep, tank) don't just need their weapon to
+clear a destructible building — hitting one hard enough chips away at its
+health too, and enough hits will knock it down outright. The tank hits much
+harder than the jeep (it can flat-out bulldoze a weak building by ramming
+alone), while the jeep's ramming is more of a nudge, not a real substitute
+for the tank's cannon. The helicopter never rams anything: it's aerial and
+flies straight over ground obstacles instead of colliding with them.
+
+**Powerups.** A handful of destructible buildings secretly hide a pickup —
+destroy one and it drops a floating, time-limited buff for your weapon:
+OVERCHARGE (2x damage), BIG SHOT (fatter, harder-hitting rounds), or LASER
+(pierces through buildings/turrets instead of stopping on the first hit).
+Drive over the dropped icon to grab it; the HUD shows which buff is active
+and how much time is left.
+
 ## The core loop
 
 1. Pick a vehicle, then drive south from your base (blue) into the arena.
@@ -144,12 +159,13 @@ test/
 
 Run the logic test any time with `node test/sim.mjs` — it covers per-vehicle
 movement and the win condition (on the procedural arena), jeep-only flag
-pickup, tank/heli weapons damaging and destroying turrets, the jeep's 2-life
-round-loss condition (and that tank/heli never run out), mid-round vehicle
-switching at base, and — for the real-world map specifically — that
-buildings convert cleanly into obstacles, no building overlaps a base, the
-road network actually connects the two bases, and capture/win mechanics
-still work with real obstacles in the mix.
+pickup, tank/heli weapons damaging and destroying turrets, ramming a
+building down at speed (and that it scales with vehicle weight and that the
+aerial heli never rams), the jeep's 2-life round-loss condition (and that
+tank/heli never run out), mid-round vehicle switching at base, and — for the
+real-world map specifically — that buildings convert cleanly into obstacles,
+no building overlaps a base, the road network actually connects the two
+bases, and capture/win mechanics still work with real obstacles in the mix.
 
 ## Where this could go next
 

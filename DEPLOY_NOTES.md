@@ -3,6 +3,17 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- Ramming-damage feature added (not yet pushed — see "Pending push" below):
+  jeep/tank chip away at destructible buildings by hitting them at speed
+  (`ramDamage` in `vehicle.js`, cooldown/contact logic in `game.js`), heli is
+  aerial and never rams. 5 new tests added, all 108 tests passing.
+  - While adding this, found the pre-existing `[heli — weapon: chaingun]
+    destroyed the turret` test was flaky (unseeded `Math.random()` turret
+    spread could occasionally kill the heli — it has only 70 HP — causing a
+    mid-test respawn that moved it away from the turret before finishing it
+    off). Unrelated to the ramming code (which is gated off for aerial
+    vehicles), fixed by re-pinning the heli's test position every frame so a
+    respawn can't derail the test. Confirmed via 15 consecutive clean runs.
 - All 15 files deployed, powerups feature live, 103/103 tests passing.
 - `src/mapData.js` ships **393 of 786 real OSM buildings** (every other one,
   spatially even sample) with full road fidelity (28KB mapData.js, ~85KB
