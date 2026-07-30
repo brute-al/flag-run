@@ -39,6 +39,9 @@ time, hitting the output-token ceiling mid-generation (once accidentally
 shipped a single-file deploy that broke prod), and re-deriving `mapData.js`
 compaction (flat-encoding buildings, sampling every 4th one) live under
 pressure.
+## Git pipeline test
+Connected Vercel to this GitHub repo on 2026-07-30 -- this commit is a test push to confirm auto-deploy works.
+
 
 ## Recommended workflow for next time
 1. Keep source files in `src/` normal and readable (don't hand-minify them
