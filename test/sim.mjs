@@ -1149,7 +1149,8 @@ console.log("\n=== Game wires particles/shake into actual events ===");
 // whole thing wired into a real Game instance to prove it actually drives
 // toward the target on the real, doubled map -- not just that a route
 // theoretically exists. Single-player mode (the default, `duel: false`) is
-// also checked here to confirm none of this leaks into it.
+// also checked here to confirm none of this leaks into it. Milestone 2
+// (combat) is covered separately in section 20 below.
 console.log("\n=== Duel mode: map mirroring ===");
 {
   const mirrored = mirrorMapData(MAP_DATA);
@@ -1205,7 +1206,7 @@ console.log("\n=== Duel mode: AIDriver steering ===");
     { x: 200, y: 200 },
   ]);
 
-  check("never fires (no combat this milestone)", !driver.isFiring() && !driver.isFiring2());
+  check("an unarmed jeep AI never fires (no weapon/turret to fight with)", !driver.isFiring() && !driver.isFiring2());
 
   let ticks = 0;
   while (!driver.reachedEnd && ticks < 60 * 10) {
@@ -1238,7 +1239,7 @@ console.log("\n=== Duel mode: wired into a real Game ===");
 
   check("arena height is doubled for duel mode", game.arena.height === MAP_DATA.worldHeight * 2);
   check("an AI vehicle was spawned", !!game.aiVehicle);
-  check("the AI drives a jeep", game.aiVehicle.type === "jeep");
+  check("the AI drives an armed tank (milestone 2)", game.aiVehicle.type === "tank");
   check("the AI spawned at the mirrored (far) base", Math.abs(game.aiVehicle.y - game.arena.enemyBase.y) < 100);
   check("the player's own flag was placed at their base", !!game.playerFlag);
   check(
@@ -1252,6 +1253,123 @@ console.log("\n=== Duel mode: wired into a real Game ===");
   const endDist = Math.hypot(game.aiVehicle.x - game.playerFlag.x, game.aiVehicle.y - game.playerFlag.y);
   check("the AI made real progress toward the player's flag", endDist < startDist * 0.6);
   check("the AI vehicle actually moved from its spawn point", endDist !== startDist);
+}
+
+// --- 20. Duel mode (milestone 2): armed AI opponent, combat -----------------
+// Milestone 1 (section 19) proved the AI can navigate the real map; this
+// covers what's new on top of that -- the AI now drives an armed tank
+// instead of an unarmed jeep, its turret independently aims at and fires on
+// the player when in range, it can take damage and be destroyed, and it
+// respawns afterward. The AIDriver combat checks below isolate aiming/firing
+// from routing (an empty route, so the hull never moves); the Game-level
+// checks isolate combat from navigation the same way (vehicles placed
+// directly next to each other, AI route cleared) since milestone 1's tests
+// already cover "can it actually drive there."
+console.log("\n=== Duel mode: AIDriver combat (milestone 2) ===");
+{
+  const driver = new AIDriver();
+  const tank = new Vehicle(0, 0, 0, "tank"); // facing +x, turret starts aligned with the hull
+  driver.setRoute([]); // reachedEnd immediately -- isolates combat from driving
+  const target = { x: 300, y: 300 }; // 45 degrees off the turret's starting aim, in range
+
+  check("starts not firing (no update() has run yet)", !driver.isFiring());
+
+  let firedAtSomePoint = false;
+  for (let i = 0; i < 120; i++) {
+    driver.update(tank, dt, target);
+    tank.update(dt, driver.getVector());
+    if (driver.isFiring()) firedAtSomePoint = true;
+  }
+  console.log("[turret sweeps onto and fires on an in-range target]");
+  check("the turret swiveled to point at the target", Math.abs(tank.turretAngle - Math.PI / 4) < 0.05);
+  check("fired at some point once aimed", firedAtSomePoint);
+  check("the hull never moved (combat is independent of driving)", tank.x === 0 && tank.y === 0);
+
+  console.log("[no target, or target out of engagement range, never fires]");
+  const driver2 = new AIDriver();
+  const tank2 = new Vehicle(0, 0, 0, "tank");
+  driver2.setRoute([]);
+  for (let i = 0; i < 60; i++) driver2.update(tank2, dt, null);
+  check("no target -- never fires", !driver2.isFiring());
+
+  const driver3 = new AIDriver();
+  const tank3 = new Vehicle(0, 0, 0, "tank");
+  driver3.setRoute([]);
+  const farTarget = { x: 5000, y: 0 }; // well beyond ENGAGEMENT_RANGE
+  for (let i = 0; i < 60; i++) driver3.update(tank3, dt, farTarget);
+  check("target out of engagement range -- never fires", !driver3.isFiring());
+
+  console.log("[an unarmed/turretless vehicle (the jeep) ignores combat entirely]");
+  const jeepDriver = new AIDriver();
+  const jeep = new Vehicle(0, 0, 0, "jeep");
+  jeepDriver.setRoute([]);
+  jeepDriver.update(jeep, dt, target);
+  check("jeep AI never fires even with a target in range", !jeepDriver.isFiring());
+  check("jeep AI's turretTurn stays 0 (no turret to swivel)", jeepDriver.getVector().turretTurn === 0);
+}
+
+console.log("\n=== Duel mode: AI vs player combat, wired into a real Game ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank"); // player also drives a tank so it can fire back
+  // Freeze the AI's hull so this isolates combat from milestone 1's
+  // already-tested driving/routing -- the AI's turret still swivels and
+  // fires independently of the (now-empty) route, exactly like a human
+  // tank's Q/E aim works independently of where the hull is pointed.
+  game.aiDriver.setRoute([]);
+
+  check("the AI drives an armed tank", game.aiVehicle.type === "tank" && !!game.aiVehicle.weapon);
+  check("the AI starts at full health", game.aiHealth === game.aiVehicle.maxHealth);
+
+  // Park the two vehicles close together and facing each other, well within
+  // engagement range -- neither has any throttle/turn input, so they stay
+  // put for the whole test without needing to be re-pinned every frame.
+  game.aiVehicle.x = 0;
+  game.aiVehicle.y = 0;
+  game.aiVehicle.heading = 0;
+  game.aiVehicle.turretAngle = 0;
+  game.vehicle.x = 300;
+  game.vehicle.y = 0;
+  game.vehicle.heading = Math.PI;
+  game.vehicle.turretAngle = Math.PI;
+  game.vehicle.vx = 0;
+  game.vehicle.vy = 0;
+
+  console.log("[AI fires on the player when in range and aimed, and actually hits]");
+  const startPlayerHealth = game.health;
+  input.set({ throttle: 0, turn: 0, fire: false });
+  let sawAiFire = false;
+  // Run a full few seconds (not an early-exit loop) so there's time for a
+  // fired bullet to actually travel the distance and land, not just for the
+  // firing event itself to occur.
+  for (let i = 0; i < 60 * 3; i++) {
+    game.update(dt);
+    for (const e of game.drainEvents()) {
+      if (e === "aiFireCannon") sawAiFire = true;
+    }
+  }
+  check("the AI opponent fired its cannon", sawAiFire);
+  check("the player took damage from AI fire", game.health < startPlayerHealth);
+
+  console.log("[player fire can damage and destroy the AI opponent]");
+  game.aiHealth = 30; // near-dead, so a single hit finishes it off
+  input.set({ throttle: 0, turn: 0, fire: true });
+  let sawAiDestroyed = false;
+  for (let i = 0; i < 60 * 3 && !sawAiDestroyed; i++) {
+    game.update(dt);
+    for (const e of game.drainEvents()) {
+      if (e === "vehicleDestroyed") sawAiDestroyed = true;
+    }
+  }
+  check("sustained player fire destroys the AI opponent", sawAiDestroyed);
+  check("AI respawn timer starts counting down once destroyed", game.aiRespawnTimer > 0);
+  check("the destroyed AI is hidden (not drawn/updated) while respawning", game.aiRespawnTimer > 0);
+
+  console.log("[AI opponent respawns after the delay, back at full health]");
+  for (let i = 0; i < 200 && game.aiRespawnTimer > 0; i++) game.update(dt);
+  check("AI respawn timer cleared", game.aiRespawnTimer <= 0);
+  check("AI vehicle is back at full health after respawning", game.aiHealth === game.aiVehicle.maxHealth);
 }
 
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
