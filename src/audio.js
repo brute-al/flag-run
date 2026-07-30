@@ -1,10 +1,26 @@
-// All sound effects are synthesized with the Web Audio API — no sampled
-// audio files, so there's nothing to license or fetch. Two kinds of sound:
-// a continuous "engine hum" oscillator whose pitch/volume track vehicle
-// speed, and short one-shot cues (tones or filtered noise bursts) fired in
-// response to game events.
+// Most sound effects are synthesized with the Web Audio API -- no sampled
+// audio files needed for those, so there's nothing to license or fetch. The
+// exception is gunfire and explosions: those four cues use short, real,
+// CC0/royalty-free recordings (see sfx/ -- each one's source page is linked
+// in DEPLOY_NOTES.md) layered in over the synthesized version, because a
+// real recording reads as "war" in a way a pure oscillator/noise burst
+// can't. Everything else (engine hum, missile whoosh, pickup chimes, the
+// run-home music) is still fully synthesized. If a sample fails to load for
+// any reason (slow network, blocked request, very old browser), every
+// sample-backed cue below quietly falls back to its original synthesized
+// version, so sound is never silently missing.
 
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+// Short real recordings layered onto the synthesized cues below (see the
+// header comment). Paths are resolved relative to this module so it works
+// regardless of what subpath the game is served from.
+const SAMPLE_FILES = {
+  gunshotRifle: "../sfx/gunshot-rifle.mp3", // turret fire + heli chaingun
+  gunshotCannon: "../sfx/gunshot-cannon.mp3", // tank cannon
+  explosionMedium: "../sfx/explosion-medium.mp3", // turret destroyed
+  explosionLoud: "../sfx/explosion-loud.mp3", // vehicle/building destroyed
+};
 
 export class SoundEngine {
   constructor() {
@@ -15,6 +31,49 @@ export class SoundEngine {
     this.noiseBuffer = this._makeNoiseBuffer();
     this._buildEngineHum();
     this.tension = new RunHomeMusic(this.ctx, this.noiseBuffer);
+
+    // Sample buffers populate asynchronously; every sample-backed cue checks
+    // `this.samples[name]` before playing and falls back to its
+    // synthesized version if it isn't ready yet.
+    this.samples = {};
+    this._loadSamples();
+  }
+
+  async _loadSamples() {
+    await Promise.all(
+      Object.entries(SAMPLE_FILES).map(async ([name, relPath]) => {
+        try {
+          const url = new URL(relPath, import.meta.url).href;
+          const res = await fetch(url);
+          const arrayBuffer = await res.arrayBuffer();
+          this.samples[name] = await this.ctx.decodeAudioData(arrayBuffer);
+        } catch (err) {
+          // Missing sample -- the caller's synthesized fallback covers this,
+          // so this is a soft failure, just worth a note in the console.
+          console.warn(`SoundEngine: couldn't load sample "${name}" (${relPath})`, err);
+        }
+      })
+    );
+  }
+
+  // Plays a loaded sample with a little per-shot pitch/gain jitter so rapid
+  // retriggering (the chaingun firing many times a second) doesn't sound
+  // like the exact same clip stuck on a loop. Returns true if it actually
+  // played something, false if that sample isn't loaded yet -- callers use
+  // the return value to decide whether to fall back to their synthesized
+  // version instead.
+  _playSample(name, { gain = 0.5, rateJitter = 0.06 } = {}) {
+    const buffer = this.samples[name];
+    if (!buffer) return false;
+    const now = this.ctx.currentTime;
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = 1 + (Math.random() * 2 - 1) * rateJitter;
+    const g = this.ctx.createGain();
+    g.gain.value = gain * (0.9 + Math.random() * 0.2);
+    source.connect(g).connect(this.ctx.destination);
+    source.start(now);
+    return true;
   }
 
   // Must be called from within a user-gesture handler (keydown/click) —
@@ -143,8 +202,11 @@ export class SoundEngine {
     }
   }
 
-  // Short pitch-drop blip — the turret's "pew".
+  // Short pitch-drop blip — the turret's "pew". Prefers the real rifle
+  // gunshot sample (see header comment); falls back to the synthesized
+  // blip below if that sample isn't loaded yet.
   _playTurretFire() {
+    if (this._playSample("gunshotRifle", { gain: 0.32, rateJitter: 0.08 })) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -175,8 +237,11 @@ export class SoundEngine {
     source.stop(now + 0.16);
   }
 
-  // Longer, bassier filtered noise sweep — vehicle destroyed.
+  // Longer, bassier filtered noise sweep — vehicle/building destroyed.
+  // Prefers the real "loud explosion" recording; falls back to the
+  // synthesized sweep below if that sample isn't loaded yet.
   _playExplosion() {
+    if (this._playSample("explosionLoud", { gain: 0.55 })) return;
     const now = this.ctx.currentTime;
     const source = this.ctx.createBufferSource();
     source.buffer = this.noiseBuffer;
@@ -194,8 +259,10 @@ export class SoundEngine {
   }
 
   // Shorter, quieter version of the explosion — a turret going down is a
-  // smaller event than losing your own vehicle.
+  // smaller event than losing your own vehicle. Prefers the real "medium
+  // explosion" recording; falls back to the synthesized version below.
   _playSmallExplosion() {
+    if (this._playSample("explosionMedium", { gain: 0.45 })) return;
     const now = this.ctx.currentTime;
     const source = this.ctx.createBufferSource();
     source.buffer = this.noiseBuffer;
@@ -273,8 +340,10 @@ export class SoundEngine {
     source.stop(now + 0.06);
   }
 
-  // Low, heavy thump — the tank's cannon firing.
+  // Low, heavy thump — the tank's cannon firing. Prefers the real, heavier
+  // gunshot sample; falls back to the synthesized thump below.
   _playCannonShot() {
+    if (this._playSample("gunshotCannon", { gain: 0.5, rateJitter: 0.05 })) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -299,7 +368,12 @@ export class SoundEngine {
   }
 
   // Quick, bright blip — the helicopter's chaingun firing (called rapidly).
+  // Prefers the real rifle gunshot sample with extra pitch jitter (since
+  // this retriggers many times a second, more variance keeps it from
+  // sounding like a single clip stuck on repeat); falls back to the
+  // synthesized blip below.
   _playChaingunShot() {
+    if (this._playSample("gunshotRifle", { gain: 0.26, rateJitter: 0.12 })) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
