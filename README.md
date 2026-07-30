@@ -172,6 +172,31 @@ version instead (this is what the test suite uses for the vehicle/weapon/
 lives mechanics, since sparse procedural obstacles are easier to test
 against with simple "steer at the target" logic).
 
+## Duel mode (experimental)
+
+Check "Duel mode" on the vehicle-select screen to play against a computer
+opponent instead of the usual single-player run. The map becomes a mirrored,
+double-height copy of the same neighborhood (`src/mirrorMap.js`) — your half
+is unchanged, the far half is an exact mirror image with matching building
+density and road layout, so both sides are laid out fairly. The AI drives its
+own jeep from its base toward your flag, navigating the real road network the
+same way the connectivity test does (`src/pathfinding.js`'s shared road
+graph + BFS route), using the same arcade vehicle physics and obstacle
+collision as the player (`src/aiDriver.js`).
+
+This is **milestone 1 of a staged build** — see `DEPLOY_NOTES.md` for the
+full plan. What's here now: a fair symmetric map and an AI that can actually
+navigate to your flag on its own, including recovering when it wedges itself
+against a building (reverses and retries, and after a few failed attempts on
+the same spot, gives up on that exact point and moves on rather than
+oscillating forever). What's **not** here yet: the AI can't fire and can't be
+damaged, your own flag isn't actually pickup-able by anyone yet, and there's
+no win/loss consequence tied to any of this — it's purely a "watch it drive"
+proof of the map and pathing mechanics. Combat, an actual symmetric win
+condition, and probably some driving-behavior tuning (it's intentionally
+"dumb" for now: no obstacle avoidance beyond the reverse-and-retry, no
+awareness of the player) are the next milestones.
+
 Map data is © OpenStreetMap contributors, licensed under the Open Database
 License (ODbL) — see `src/mapData.js`'s header comment and
 [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright).
@@ -204,6 +229,9 @@ src/
   game.js         orchestrates state: select, pickup, capture, damage, respawn, win, sound events
   audio.js        Web Audio synth engine (engine hum + one-shot SFX) + 4 real gunfire/explosion samples
   music.js        background music player -- random track per round, crossfades to a flag-getting track
+  mirrorMap.js    (experimental) mirrors map data to build duel mode's symmetric double-height map
+  pathfinding.js  shared road-graph + BFS route finder, used by the AI opponent and the connectivity test
+  aiDriver.js     (experimental) autonomous "input" source that steers a vehicle along a route
 sfx/              4 short CC0 gunshot/explosion recordings (see DEPLOY_NOTES.md for sources)
 music/            3 background tracks + 1 flag-getting track (see DEPLOY_NOTES.md for sources)
 tools/
@@ -223,7 +251,11 @@ ending the round once the whole garage is empty), mid-round vehicle
 switching at base, and — for the real-world map specifically — that
 buildings convert cleanly into obstacles, no building overlaps a base, the
 road network actually connects the two bases, and capture/win mechanics
-still work with real obstacles in the mix.
+still work with real obstacles in the mix. It also covers experimental duel
+mode: the map-mirroring math, that the mirrored map's two halves are
+actually connected (not just each half individually), and that the AI
+opponent makes real, measurable progress toward the player's flag on the
+real map within a generous time budget — not just that a route exists.
 
 ## Where this could go next
 
@@ -236,8 +268,10 @@ still work with real obstacles in the mix.
   (A smaller first pass at "more visual pizzazz" already shipped within the
   current 2D canvas renderer — see "Effects" above — without needing this.)
 - Destructible base structures instead of a fixed turret pair.
-- A second enemy base / capture point for a real back-and-forth match, or a
-  simple AI opponent doing the same flag-run against you.
+- **Duel mode combat + real win condition** (milestone 1's symmetric map and
+  AI pathing already shipped, see "Duel mode" above): give the AI a weapon
+  and lives like the player, let either side actually pick up the other's
+  flag, and add the symmetric win/loss check that ties it all together.
 - Swap the synthesized SFX for a licensed/CC0 sample pack (e.g. Kenney.nl)
   if you want a punchier, less "retro synth" sound.
 - A visible weapon-cooldown/reload indicator in the HUD instead of just the

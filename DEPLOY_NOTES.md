@@ -1,28 +1,100 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-30)
-Everything below is shipped, tested, and live. The one open item is a
-**forward-looking design question the user asked but did NOT request built
-yet**: a mirrored, double-length version of the map with a computer-controlled
-opponent racing for the player's flag while the player races for the
-opponent's. Do not start building this unless the user explicitly asks —
-last session's answer to "could we do this" was purely a feasibility
-discussion. If/when asked to actually build it, the rough shape discussed was:
-- Mirror the existing OSM building/road layout around the center point
-  (simpler and guaranteed-fair vs. sourcing a second real-world strip) to
-  double arena height, giving the AI its own base/flag symmetric to the
-  player's.
-- A second `Vehicle` instance driven by simple AI (not player input): path
-  toward the player's flag along the road graph (the BFS connectivity check
-  in `test/sim.mjs` section 5 already builds the road adjacency graph this
-  could reuse for real pathfinding), fire when in range, respawn under the
-  same lives rules as the player.
-- Win condition becomes symmetric: detect either side delivering the other's
-  flag home, plus probably some rubber-banding/tuning so the AI is neither
-  trivial nor unfair.
-- Scope note given to the user: this is a real feature arc (new AI module +
-  symmetric map generation + dual win-condition logic), not a quick patch
-  like the three fixes below it.
+Duel mode's **milestone 1 is built and tested** (verify against
+`list_deployments`/the commit history before assuming it's actually live --
+don't assume a push succeeded without checking, per this file's own
+commit-verification lesson further down): a mirrored, double-height version of the
+map with an AI vehicle that autonomously drives toward the player's flag
+along the real road network. This directly follows up the design discussion
+recorded lower in this file's history (the user's "could we do a mirrored
+map with a computer opponent" question) -- that discussion is now superseded
+by this actual implementation; treat this entry, not the old discussion
+notes further down, as current.
+
+**What shipped (milestone 1 -- "symmetric map + dumb AI vehicle driving
+toward your flag, no combat yet"):**
+- `src/mirrorMap.js` (`mirrorMapData`): doubles a map dataset's height and
+  mirrors every building/road point about the original height, so the two
+  halves are an exact mirror image (same building density, same roads).
+  Arena's own base placement is already purely a function of width/height,
+  so handing it this doubled dataset "just works" -- no Arena changes
+  needed. **Important subtlety caught by testing, not assumed:** naively
+  mirroring does NOT guarantee the two halves' road networks are physically
+  connected -- they only share a point if some original road happens to sit
+  exactly on the mirror line, which isn't guaranteed (the source map's roads
+  were laid out to serve its own single pair of bases, not to reach its own
+  edge). Fixed by explicitly bridging the two halves with one connector road
+  anchored at the real network's own largest-connected-component,
+  southernmost point (found via a full BFS over the road graph, not assumed
+  to be the literal southernmost data point, in case that point happened to
+  be an unreachable fragment).
+- `src/pathfinding.js`: shared road-graph builder + BFS route-finder,
+  factored out of what used to be inline-only connectivity-check logic in
+  `test/sim.mjs` section 5 (that section is unchanged; this is a reusable
+  extraction, not a behavior change to it). `findRoute()` always falls back
+  to a direct two-point line rather than returning null, so callers never
+  special-case "no route".
+- `src/aiDriver.js` (`AIDriver`): a pure-pursuit-style controller
+  implementing the same `getVector()/isFiring()/isFiring2()` interface as
+  `Input`/`GamepadInput`, so `Vehicle.update()` doesn't know or care that
+  it's being driven by AI instead of a person. **Two real failure modes hit
+  during testing, both already called out by test/sim.mjs section 1's
+  autopilot-avoidance comment, and both had to be fixed, not just
+  tolerated:**
+  1. *Orbiting forever*: a vehicle's real minimum turning radius grows with
+     speed (300+ units for the jeep at top speed), so chasing a tight (40
+     unit) arrival radius at full throttle meant it would circle a waypoint
+     endlessly, never closing the last few units. Fixed with a much wider
+     arrival radius (90 units) and a throttle cap well below top speed
+     (`MAX_THROTTLE = 0.55`), both of which keep its actual turning radius
+     smaller than the gaps between waypoints. Also had an actual bug on top
+     of this: reaching the final waypoint set the steering vector to
+     "stop" but never advanced `waypointIndex` to mark the route complete,
+     so `reachedEnd` could never become `true` even once genuinely arrived.
+  2. *Permanently wedged against a building*: no obstacle avoidance at all
+     means it can drive itself into a tight corner and get physically
+     stuck. Fixed with a simple "notice you're not actually moving despite
+     throttling, reverse for a moment, retry" recovery; and because a single
+     reverse-and-retry can itself loop forever against a tight enough
+     corner, after 3 failed attempts on the same waypoint it gives up on
+     hitting that one precisely and skips ahead instead.
+  Verified by first writing a standalone diagnostic script driving the real
+  duel-mode Game for 90-240 simulated seconds and logging position/waypoint
+  progress every few seconds -- this is what caught both failure modes
+  above; don't assume the pursuit math works just because it looks right on
+  paper, actually run it against the real map's geometry. (One full run was
+  timed at completing the entire ~4800-unit mirrored route in about 233
+  simulated seconds -- slow, but it does get there; the shipped test only
+  asserts "made real progress" within a much shorter budget, not full
+  arrival, to keep the suite fast.)
+- `game.js`: new `duel` constructor option (default `false`, so
+  single-player is completely unaffected -- verified explicitly in tests).
+  When on: `reset()` mirrors the map, spawns `this.aiVehicle` (a jeep) at
+  the mirrored base facing into the arena, places `this.playerFlag` at the
+  player's own base as the AI's target, and computes its route once at
+  round start (the target doesn't move yet, so no need to re-path every
+  frame). `update()` drives the AI vehicle every frame with the same
+  physics/collision the player uses; `draw()` renders it and the second
+  flag. No combat, no win-condition changes, no HUD changes yet.
+- `index.html`/`style.css`/`main.js`: a "Duel mode (experimental)" checkbox
+  on the select screen, read into `game.duel` right before
+  `game.chooseVehicle()` (only for starting a whole new round -- hidden
+  during the mid-round vehicle-swap overlay, since duel mode can't change
+  there anyway).
+- 13 new test checks (mirror math, bridge connectivity, AIDriver on a
+  synthetic route, and the full Game integration proving single-player is
+  untouched and duel mode makes real measurable progress toward the flag on
+  the actual map) -- all passing, `node test/sim.mjs` runs in well under a
+  second (physics-only simulation, no rendering, so even the 90-second
+  simulated-time check is fast in wall-clock terms).
+
+**What's explicitly NOT here yet** (later milestones, per the user's own
+staged-build choice): the AI can't fire and can't take damage; the player's
+own flag isn't actually pickup-able by the AI (it's rendered but inert);
+there's no symmetric win/loss condition; turret placement wasn't mirrored
+(the existing 8 turrets just spread across the now-doubled route length,
+unchanged logic); the AI doesn't react to the player at all.
 
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
