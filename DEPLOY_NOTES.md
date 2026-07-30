@@ -3,6 +3,27 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- Added real background music (`src/music.js`'s `MusicPlayer`, wired into
+  `main.js`): 3 tracks in `music/` are candidates for a random per-round
+  pick (`battle-rage.mp3`, `battle-eternity.mp3`, `battle-song.mp3`), looped
+  quietly via plain `<audio>` elements (not the Web Audio API the rest of
+  the audio code uses, since these are full songs). `music/flag-getting.mp3`
+  crossfades in when the jeep grabs the flag and crossfades back to the
+  background track on capture/drop. User-provided files (filenames follow
+  Pixabay Music's `author-title-id.mp3` naming convention, e.g.
+  `vanguardiacreate-epic-battle-344846.mp3`, suggesting that's their
+  origin) — uploaded directly into chat and copied in, not fetched by this
+  sandbox.
+  - **New pitfall found while verifying this one:** for a file path that
+    has *never existed in the repo before* (a brand-new folder like
+    `music/`), GitHub's per-file `commits/main/<path>` history page can
+    say "No commits history" for a beat even though the commit actually
+    landed fine — this is just indexing lag for a new path, not the
+    silent-no-op bug described below. Confirmed by checking the *commit's
+    own* page (`github.com/.../commit/<sha>`), which showed the correct
+    file tree and byte sizes immediately. So: for a brand-new path, check
+    the commit's own diff page first; only treat a per-file history page
+    as authoritative for paths that already existed before this commit.
 - Added 4 real gunfire/explosion samples (`sfx/`) layered over the
   synthesized versions of turret fire, heli chaingun, tank cannon, and both
   explosion cues (`src/audio.js`'s `_playSample()`), plus fiery vehicle/

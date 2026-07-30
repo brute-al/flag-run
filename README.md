@@ -123,6 +123,15 @@ much lower than a lead sound. The jeep's flag-run cue (`src/audio.js`'s
 `RunHomeMusic`) is a bright, driving 150bpm bass riff with a syncopated
 upbeat -- meant to feel like a triumphant getaway, not a horror drone.
 
+On top of all that, `src/music.js` (`MusicPlayer`) plays real background
+music: one of three tracks is picked at random each time a new round starts
+and loops quietly for the whole match, then crossfades out to a dedicated
+"flag-getting" track the moment the jeep grabs the flag, and crossfades
+back once it's dropped or captured. It uses plain `<audio>` elements rather
+than the Web Audio API machinery the rest of `audio.js`/`RunHomeMusic` runs
+on, since these are full songs (several MB each) rather than short
+one-shot cues -- see `music/` and `DEPLOY_NOTES.md` for the track sources.
+
 ## Real-world map
 
 The arena is your actual neighborhood: building footprints and streets
@@ -185,7 +194,9 @@ src/
   entities.js     Flag, Turret, Bullet
   game.js         orchestrates state: select, pickup, capture, damage, respawn, win, sound events
   audio.js        Web Audio synth engine (engine hum + one-shot SFX) + 4 real gunfire/explosion samples
+  music.js        background music player -- random track per round, crossfades to a flag-getting track
 sfx/              4 short CC0 gunshot/explosion recordings (see DEPLOY_NOTES.md for sources)
+music/            3 background tracks + 1 flag-getting track (see DEPLOY_NOTES.md for sources)
 tools/
   convert_osm.py  turns an OpenStreetMap .osm export into src/mapData.js
 test/
