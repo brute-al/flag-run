@@ -50,11 +50,16 @@ for the tank's cannon. The helicopter never rams anything: it's aerial and
 flies straight over ground obstacles instead of colliding with them.
 
 **Powerups.** A handful of destructible buildings secretly hide a pickup —
-destroy one and it drops a floating, time-limited buff for your weapon:
-OVERCHARGE (2x damage), BIG SHOT (fatter, harder-hitting rounds), or LASER
-(pierces through buildings/turrets instead of stopping on the first hit).
-Drive over the dropped icon to grab it; the HUD shows which buff is active
-and how much time is left.
+and unlike the rest of the neighborhood, a seeded building is unmistakable:
+it glows gold with a pulsing halo, so hunting one down is a real choice, not
+a lucky demolition. Destroy one and it drops a floating, time-limited buff:
+OVERCHARGE (2x damage), BIG SHOT (fatter, harder-hitting rounds), LASER
+(pierces through buildings/turrets instead of stopping on the first hit), or
+ARMOR (halves incoming damage — the one defensive buff in the set). Drive
+over the dropped icon to grab it; the HUD shows which buff is active and how
+much time is left. Which 5 buildings hide a powerup is re-rolled every round
+(each time you pick a vehicle from the start screen), so it's never the same
+spot twice.
 
 ## The core loop
 

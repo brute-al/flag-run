@@ -3,6 +3,15 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- Powerup buildings now render gold with a pulsing halo (`_drawBuilding` in
+  `arena.js`) instead of being invisible until destroyed — the whole point
+  was to give players something to actively hunt down. Added a 4th powerup,
+  ARMOR (halves incoming damage via a new `damageTakenMult` field on
+  `POWERUP_STATS`/`_weaponModifiers`, applied at the `vehicleHit` bullet-
+  damage line in `game.js`). Seeding was already re-randomized every round
+  (each `reset()` builds a brand-new `Arena`, which re-runs
+  `_seedPowerups`) — that part turned out to already be correct, just
+  undocumented and invisible. 8 new tests added, 116 total, all passing.
 - Ramming-damage feature added (not yet pushed — see "Pending push" below):
   jeep/tank chip away at destructible buildings by hitting them at speed
   (`ramDamage` in `vehicle.js`, cooldown/contact logic in `game.js`), heli is
