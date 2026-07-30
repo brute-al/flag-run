@@ -1372,5 +1372,109 @@ console.log("\n=== Duel mode: AI vs player combat, wired into a real Game ===");
   check("AI vehicle is back at full health after respawning", game.aiHealth === game.aiVehicle.maxHealth);
 }
 
+// --- 21. Duel mode: territorial turrets ------------------------------------
+// User-requested follow-up to milestone 2: turrets should defend their own
+// side of the mirrored map's halfway line rather than every turret
+// universally targeting the player. A turret north of the line (your side)
+// fires on the AI opponent; one south of the line (the AI's side) fires on
+// you. Outside duel mode there's no AI vehicle at all, so every turret keeps
+// targeting the player exactly like before -- checked explicitly here as a
+// regression guard.
+console.log("\n=== Duel mode: territorial turrets (your side defends against the AI) ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank");
+  game.aiDriver.setRoute([]); // freeze the AI's hull -- isolate turret targeting from routing
+
+  const midline = game.arena.height / 2;
+  const northTurret = game.turrets.find((t) => t.y < midline);
+  check("found at least one turret north of the mirror line (your side)", !!northTurret);
+
+  if (northTurret) {
+    // AI parked close beside the north turret, well within range; player
+    // parked near the opposite (south) edge of the map, safely within world
+    // bounds but far outside any turret's range.
+    game.aiVehicle.x = northTurret.x + 50;
+    game.aiVehicle.y = northTurret.y;
+    game.vehicle.x = game.arena.width / 2;
+    game.vehicle.y = game.arena.height - 50;
+
+    console.log("[a turret on your side fires on the AI, not you]");
+    const startAiHealth = game.aiHealth;
+    const startPlayerHealth = game.health;
+    let sawFire = false;
+    let bulletTargetsPlayer = null;
+    for (let i = 0; i < 60 * 3; i++) {
+      game.update(dt);
+      for (const e of game.drainEvents()) {
+        if (e === "turretFire") sawFire = true;
+      }
+      const b = game.bullets.find((b) => !b.friendly);
+      if (b && bulletTargetsPlayer === null) bulletTargetsPlayer = b.targetsPlayer;
+    }
+    check("the north turret fired", sawFire);
+    check("its bullet was flagged to hit the AI, not the player", bulletTargetsPlayer === false);
+    check("the AI took damage from its own side's turret", game.aiHealth < startAiHealth);
+    check("the player took no damage (out of range, wrong side)", game.health === startPlayerHealth);
+  }
+}
+
+console.log("\n=== Duel mode: territorial turrets (the AI's side defends against you) ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank");
+  game.aiDriver.setRoute([]);
+
+  const midline = game.arena.height / 2;
+  const southTurret = game.turrets.find((t) => t.y >= midline);
+  check("found at least one turret south of the mirror line (the AI's side)", !!southTurret);
+
+  if (southTurret) {
+    game.vehicle.x = southTurret.x + 50;
+    game.vehicle.y = southTurret.y;
+    game.aiVehicle.x = game.arena.width / 2;
+    game.aiVehicle.y = 50;
+
+    console.log("[a turret on the AI's side fires on you, not the AI]");
+    const startAiHealth = game.aiHealth;
+    const startPlayerHealth = game.health;
+    let sawFire = false;
+    for (let i = 0; i < 60 * 3; i++) {
+      game.update(dt);
+      for (const e of game.drainEvents()) {
+        if (e === "turretFire") sawFire = true;
+      }
+    }
+    check("the south turret fired", sawFire);
+    check("the player took damage from the AI's side turret", game.health < startPlayerHealth);
+    check("the AI took no damage (out of range, wrong side)", game.aiHealth === startAiHealth);
+  }
+}
+
+console.log("\n=== Single-player mode: turrets always target the player (no territoriality) ===");
+{
+  const input = makeInput();
+  const game = new Game(input); // duel defaults off
+  game.chooseVehicle("tank");
+  const turret = game.turrets[0];
+
+  let sawFire = false;
+  let bulletTargetsPlayer = null;
+  for (let i = 0; i < 60 * 5 && !sawFire; i++) {
+    game.vehicle.x = turret.x;
+    game.vehicle.y = turret.y - 150;
+    game.update(dt);
+    for (const e of game.drainEvents()) {
+      if (e === "turretFire") sawFire = true;
+    }
+    const b = game.bullets.find((b) => !b.friendly);
+    if (b) bulletTargetsPlayer = b.targetsPlayer;
+  }
+  check("turret fired at the player as usual outside duel mode", sawFire);
+  check("its bullet still targets the player (no territoriality outside duel mode)", bulletTargetsPlayer === true);
+}
+
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
 if (!allPass) process.exit(1);
