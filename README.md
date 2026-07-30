@@ -193,7 +193,12 @@ oscillating forever). **Milestone 2** armed it: the AI's turret independently
 swivels toward and fires on you whenever you're within range and it's
 roughly aimed — exactly like a human tank's Q/E turret traverse works
 independently of the hull — and it can now take damage and be destroyed,
-respawning after a short delay just like you do. What's **not** here yet:
+respawning after a short delay just like you do. Turrets are also
+**territorial**: ones north of the map's exact halfway line (your side)
+defend it by targeting the AI opponent, ones south of that line (the AI's
+side) defend it by targeting you — a real capture-the-flag feel where
+you're each fighting through the other's defenses while your own turrets
+cover you. What's **not** here yet:
 the AI can't switch vehicles (a human player can hop into the jeep at their
 own base — the AI can't), your own flag still isn't actually pickup-able by
 anyone yet, and there's no win/loss consequence tied to any of this — beating

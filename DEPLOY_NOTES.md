@@ -1,11 +1,16 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-30)
-Duel mode's **milestone 2 (combat) is built and tested; deployment status
-has NOT been verified yet in this entry** -- check `list_deployments`/the
-commit history before assuming it's live, per this file's own
-commit-verification lesson further down; don't assume a push succeeded
-without checking.
+Duel mode's **milestone 2 (combat) is confirmed live**: four commits
+(c1aa5e4/20d11e5/e7433fe/36da00e) all verified via their own diff pages, a
+READY Vercel deployment matching the last of them, and a live in-browser
+check with no console errors on the actual game page. On top of that, a
+**follow-up the user asked for directly after seeing it work is also built,
+tested, and deployment-status-NOT-yet-verified-in-this-entry**: territorial
+turrets (see "What shipped (territorial turrets)" below) -- check
+`list_deployments`/the commit history before assuming that latest piece is
+live, per this file's own commit-verification lesson further down; don't
+assume a push succeeded without checking.
 
 Before milestone 2, the user separately asked two exploratory questions
 (answered but explicitly NOT built): whether the game could support a second
@@ -92,8 +97,46 @@ choice -- this was deliberately scoped smaller than the
 switching/flag-pickup/win-condition idea discussed above): the AI can't
 switch vehicles, can't pick up the player's flag (still rendered but inert),
 and there's still no win/loss condition -- destroying the AI just respawns
-it, there's no consequence either direction yet. Turret placement also still
-isn't mirrored (unchanged from milestone 1).
+it, there's no consequence either direction yet.
+
+**What shipped (territorial turrets -- user follow-up after seeing milestone
+2 work):** after trying duel mode combat, the user asked for a real
+capture-the-flag feel: turrets should defend their own half of the mirrored
+map rather than every turret universally gunning for the player. Implemented
+as pure retargeting, no change to turret count/placement/layout (that's
+still the same 8-turret layout spread unmirrored across the doubled route,
+same as milestone 1 left it -- a separate, not-yet-requested follow-up):
+- `src/entities.js`: `Bullet` gained a `targetsPlayer` field (default `true`,
+  so every existing non-friendly-bullet call site -- single-player turret
+  fire, the AI opponent's own cannon -- keeps meaning "hit the player"
+  without any changes needed at those call sites). `Turret.update()` gained
+  a matching `targetsPlayer` parameter (also defaulting to `true`) that it
+  just forwards onto the `Bullet` it constructs.
+- `src/game.js`: the turret-update loop now computes, per turret, per frame:
+  in duel mode, is this turret's `y` north or south of `arena.height / 2` --
+  the exact line `mirrorMap.js` reflected everything about, so it's already
+  the natural halfway mark of the doubled map, no new geometry needed. North
+  (your side) turrets target `aiVehicle` and pass `targetsPlayer: false`;
+  south (the AI's side) turrets keep targeting `this.vehicle` with the
+  default `true`. Outside duel mode (no `aiVehicle` to speak of) every
+  turret keeps its old behavior unconditionally. A north turret with no live
+  AI to shoot at (mid-respawn) just sits idle for that frame rather than
+  aiming at a stale position.
+- The bullet-vs-vehicle collision handling in `update()` now has three
+  branches instead of two: friendly bullets (unchanged: turrets, and in duel
+  mode the AI vehicle too), non-friendly bullets with `targetsPlayer: false`
+  (new: territorial turret fire hits `aiVehicle`), and non-friendly bullets
+  with `targetsPlayer: true` (unchanged: hits the player). The "what happens
+  when the AI takes a hit" logic (damage, death, fireball, respawn timer)
+  was factored into a new `_damageAI()` helper shared by this new branch and
+  the existing friendly-fire-vs-aiVehicle branch, rather than duplicated.
+- 12 new test checks: a turret on your side actually fires on and damages
+  the AI (and not you, even though you're technically still on the map), a
+  turret on the AI's side actually fires on and damages you (and not the
+  AI), and an explicit single-player regression check that turrets still
+  unconditionally target the player with no territoriality at all outside
+  duel mode. All passing, stable across 5 consecutive `node test/sim.mjs`
+  runs.
 
 **What shipped (milestone 1 -- "symmetric map + dumb AI vehicle driving
 toward your flag, no combat yet"):**
