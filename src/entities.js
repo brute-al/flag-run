@@ -63,15 +63,22 @@ export class Flag {
 }
 
 export class Bullet {
-  // `friendly` = fired by the player (damages turrets); false = turret fire
-  // (damages the player vehicle). Just controls collision targeting + color.
-  // `tall` = flies in over rooftop height and skips building collision
-  // entirely (see game.js): true for an elevated turret's shots, and also
-  // for the heli's missile (see vehicle.js's `weapon2`) so it can reach a
-  // target -- or a tall turret -- that's using a building as cover from
-  // ground-level fire. `radius` defaults to the small chaingun/turret-round
-  // size; the missile passes a chunkier one.
-  constructor(x, y, angle, speed, damage, friendly = false, tall = false, radius = 4) {
+  // `friendly` = fired by the player (damages turrets, and in duel mode the
+  // AI vehicle); false = enemy fire (damages a vehicle -- see
+  // `targetsPlayer` for which one). Just controls collision targeting +
+  // color. `tall` = flies in over rooftop height and skips building
+  // collision entirely (see game.js): true for an elevated turret's shots,
+  // and also for the heli's missile (see vehicle.js's `weapon2`) so it can
+  // reach a target -- or a tall turret -- that's using a building as cover
+  // from ground-level fire. `radius` defaults to the small chaingun/turret-
+  // round size; the missile passes a chunkier one. `targetsPlayer` only
+  // matters for non-friendly fire: true (the default) means it damages the
+  // player vehicle -- every non-duel turret shot and the AI opponent's own
+  // cannon always want this. `false` is duel mode's territorial turrets
+  // (see game.js's turret-targeting block): a turret on your side of the
+  // mirrored map's halfway line fires on the AI opponent instead, so its
+  // bullets need to say so.
+  constructor(x, y, angle, speed, damage, friendly = false, tall = false, radius = 4, targetsPlayer = true) {
     this.x = x;
     this.y = y;
     this.vx = Math.cos(angle) * speed;
@@ -80,6 +87,7 @@ export class Bullet {
     this.damage = damage;
     this.friendly = friendly;
     this.tall = tall;
+    this.targetsPlayer = targetsPlayer;
     this.dead = false;
     this.life = 3; // seconds before it fizzles out
     // Set by game.js when the LASER powerup is active. A piercing round
@@ -164,7 +172,13 @@ export class Turret {
     this.destroyed = false;
   }
 
-  update(dt, targetX, targetY, bullets) {
+  // `targetsPlayer` (default true) is just forwarded onto the Bullet it
+  // fires -- see Bullet's own header comment. Every call site outside duel
+  // mode leaves it at the default, so a turret's shots always mean "hit the
+  // player" exactly like before; duel mode's territorial turrets (see
+  // game.js) pass `false` for turrets on the player's side of the mirrored
+  // map's halfway line, whose shots are meant for the AI opponent instead.
+  update(dt, targetX, targetY, bullets, targetsPlayer = true) {
     if (this.destroyed) return false;
 
     const dx = targetX - this.x;
@@ -177,7 +191,7 @@ export class Turret {
       this.fireCooldown = this.fireInterval;
       const spread = (Math.random() - 0.5) * 2 * this.inaccuracy;
       bullets.push(
-        new Bullet(this.x, this.y, this.aimAngle + spread, this.bulletSpeed, this.damage, false, this.tall)
+        new Bullet(this.x, this.y, this.aimAngle + spread, this.bulletSpeed, this.damage, false, this.tall, 4, targetsPlayer)
       );
       return true;
     }

@@ -252,6 +252,28 @@ export class Game {
     }
   }
 
+  // Applies a bullet's damage to the duel-mode AI opponent and handles its
+  // death (fiery explosion, camera shake, respawn timer) -- shared by the
+  // friendly-fire-vs-aiVehicle check (your own gun) and the territorial
+  // turret-vs-aiVehicle check (your side's turrets defending against it) in
+  // update()'s bullet loop, so "what happens when the AI takes a hit" lives
+  // in one place instead of being duplicated between the two. Caller is
+  // responsible for the distance check and for marking the bullet dead (or
+  // adding it to hitTargets if piercing) -- this only handles the damage
+  // and death consequences once a hit is already confirmed.
+  _damageAI(bullet, sparkColor) {
+    this.aiHealth -= bullet.damage;
+    this.events.push("vehicleHit");
+    this.particles.spark(this.aiVehicle.x, this.aiVehicle.y, sparkColor);
+    if (this.aiHealth <= 0) {
+      this.aiHealth = 0;
+      this.events.push("vehicleDestroyed");
+      this.particles.fieryExplosion(this.aiVehicle.x, this.aiVehicle.y, 1.6);
+      this.camera.shake(10, 0.35);
+      this.aiRespawnTimer = RESPAWN_DELAY;
+    }
+  }
+
   // Looks up the current shot modifiers from whatever powerup (if any) is
   // active. Neutral defaults mean every call site can multiply/OR unconditionally
   // without a separate "is a powerup active" branch.
@@ -503,9 +525,27 @@ export class Game {
       }
     }
 
-    // Turrets track and fire at the vehicle.
+    // Turrets track and fire. In duel mode they're territorial: a turret
+    // sitting north of the mirrored map's exact halfway line (arena.height /
+    // 2 -- the same line mirrorMap.js reflected everything about) is on your
+    // side, so it defends it by targeting the AI opponent; a turret south of
+    // that line is on the AI's side and defends it by targeting you. Outside
+    // duel mode there's no AI vehicle to speak of, so every turret just
+    // targets the player, exactly like before.
     for (const turret of this.turrets) {
-      const fired = turret.update(dt, this.vehicle.x, this.vehicle.y, this.bullets);
+      let targetX = this.vehicle.x;
+      let targetY = this.vehicle.y;
+      let targetsPlayer = true;
+      if (this.duel && turret.y < this.arena.height / 2) {
+        // On your side of the line -- nothing to defend against while the
+        // AI is destroyed/respawning, so just sit idle rather than aim at
+        // its old, now-meaningless last position.
+        if (!this.aiVehicle || this.aiRespawnTimer > 0) continue;
+        targetX = this.aiVehicle.x;
+        targetY = this.aiVehicle.y;
+        targetsPlayer = false;
+      }
+      const fired = turret.update(dt, targetX, targetY, this.bullets, targetsPlayer);
       if (fired) {
         this.events.push("turretFire");
         this.particles.muzzleFlash(turret.x, turret.y, turret.aimAngle, "#ffb37a");
@@ -594,17 +634,20 @@ export class Game {
               } else {
                 bullet.dead = true;
               }
-              this.aiHealth -= bullet.damage;
-              this.events.push("vehicleHit");
-              this.particles.spark(this.aiVehicle.x, this.aiVehicle.y, "#8fe3ff");
-              if (this.aiHealth <= 0) {
-                this.aiHealth = 0;
-                this.events.push("vehicleDestroyed");
-                this.particles.fieryExplosion(this.aiVehicle.x, this.aiVehicle.y, 1.6);
-                this.camera.shake(10, 0.35);
-                this.aiRespawnTimer = RESPAWN_DELAY;
-              }
+              this._damageAI(bullet, "#8fe3ff");
             }
+          }
+        }
+      } else if (bullet.targetsPlayer === false) {
+        // Territorial duel-mode turret fire aimed at the AI opponent (see
+        // the turret-targeting block above), not you -- same hit/death
+        // handling as the friendly-fire-vs-aiVehicle block above, just
+        // triggered by one of your own side's turrets instead of your gun.
+        if (this.duel && this.aiVehicle && this.aiRespawnTimer <= 0) {
+          const dAiTurret = Math.hypot(bullet.x - this.aiVehicle.x, bullet.y - this.aiVehicle.y);
+          if (dAiTurret < bullet.radius + this.aiVehicle.radius) {
+            bullet.dead = true;
+            this._damageAI(bullet, "#ffb37a");
           }
         }
       } else {
