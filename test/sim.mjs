@@ -92,6 +92,15 @@ for (const type of ["tank", "heli"]) {
   let sawTurretHit = false;
   let sawTurretDestroyed = false;
   for (let i = 0; i < 60 * 15 && !turret.destroyed; i++) {
+    // Turret return fire is randomized (spread + who-shoots-first luck), so
+    // the lighter heli can occasionally die and respawn mid-loop before it
+    // finishes off the turret. Re-pin position/heading every frame so a
+    // respawn (which moves the vehicle back to base) doesn't derail this
+    // test -- we're testing "can this weapon destroy a turret", not "can
+    // this vehicle survive standing still under turret fire".
+    game.vehicle.x = turret.x;
+    game.vehicle.y = turret.y - 150;
+    game.vehicle.heading = Math.PI / 2;
     input.set({ throttle: 0, turn: 0, fire: true });
     game.update(dt);
     for (const e of game.drainEvents()) {
@@ -838,6 +847,84 @@ console.log("\n=== Laser piercing bullets ===");
   game.update(dt);
   check("the turret took damage", turret.health === startTurretHealth - 10);
   check("the piercing bullet survived hitting the turret too", !laserBullet.dead);
+}
+
+// --- 17. Ramming: driving into a building at speed damages it -------------
+// A synthetic circle-only obstacle (no facets) is used here instead of a
+// real map building -- it isolates the test from the real map's polygon
+// collision specifics (already covered by section 7) and gives fully
+// deterministic contact geometry to drive the ram-cooldown timing against.
+console.log("\n=== Ramming buildings ===");
+function makeSyntheticBuilding(x, y, radius = 30, health = 55) {
+  return { x, y, radius, facets: [], destructible: true, health, maxHealth: health, destroyed: false, paletteIndex: 0 };
+}
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("tank");
+  const target = makeSyntheticBuilding(400, 0);
+  game.arena.obstacles = [target];
+
+  console.log("[tank ramming]");
+  // Already in contact, already moving fast toward it (heading 0 == +x, same
+  // direction as the building), so the very first update can register a hit.
+  game.vehicle.x = target.x - (target.radius + game.vehicle.radius);
+  game.vehicle.y = target.y;
+  game.vehicle.heading = 0;
+  game.vehicle.vx = 200; // well above RAM_SPEED_THRESHOLD
+  game.vehicle.vy = 0;
+
+  const startHealth = target.health;
+  input.set({ throttle: 1, turn: 0 });
+  for (let i = 0; i < 400 && !target.destroyed; i++) game.update(dt);
+
+  check("ramming a building at speed damages it", target.health < startHealth || target.destroyed);
+  check("sustained ramming eventually destroys a standard building", target.destroyed === true);
+}
+
+console.log("[jeep can ram too, but far weaker than the tank]");
+{
+  const jeep = new Vehicle(0, 0, 0, "jeep");
+  const tank = new Vehicle(0, 0, 0, "tank");
+  const heli = new Vehicle(0, 0, 0, "heli");
+  check("jeep has some ram damage", jeep.ramDamage > 0);
+  check("tank rams much harder than the jeep", tank.ramDamage > jeep.ramDamage);
+  check("helicopter has no ram damage (it flies over obstacles, never collides with them)", heli.ramDamage === 0);
+}
+
+console.log("[helicopter never rams -- it's aerial and skips obstacle collision entirely]");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("heli");
+  const target = makeSyntheticBuilding(0, 0);
+  game.arena.obstacles = [target];
+  game.vehicle.x = target.x;
+  game.vehicle.y = target.y;
+  game.vehicle.vx = 300;
+  game.vehicle.vy = 0;
+  const startHealth = target.health;
+  input.set({ throttle: 1, turn: 0 });
+  for (let i = 0; i < 60; i++) game.update(dt);
+  check("flying straight through a building's spot never triggers ram damage", target.health === startHealth);
+}
+
+console.log("[contact below the ram-speed threshold does no damage]");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("tank");
+  const target = makeSyntheticBuilding(0, 0);
+  game.arena.obstacles = [target];
+  // Resting right at the contact boundary, but not moving.
+  game.vehicle.x = target.x - (target.radius + game.vehicle.radius);
+  game.vehicle.y = target.y;
+  game.vehicle.vx = 0;
+  game.vehicle.vy = 0;
+  const startHealth = target.health;
+  input.set({ throttle: 0, turn: 0 });
+  for (let i = 0; i < 30; i++) game.update(dt);
+  check("resting against a building below the speed threshold doesn't ram it", target.health === startHealth);
 }
 
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
