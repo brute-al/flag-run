@@ -3,6 +3,41 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- **Latest batch (not yet pushed as of writing this entry):** three changes
+  in response to user playtesting feedback:
+  1. Removed the old synthesized `RunHomeMusic` class/`this.tension` calls
+     from `src/audio.js` entirely -- it used to start on `flagPickup` and
+     stop on `flagCapture`/`flagDropped`/`roundReset`, but that meant it
+     played simultaneously underneath the real `flag-getting.mp3` track from
+     `src/music.js`'s `MusicPlayer` (also wired to the same events), which
+     read as an unwanted 8-bit-sounding loop buried under the real song.
+     music.js now owns that moment on its own.
+  2. Jeep now takes self-damage ramming buildings: `VEHICLE_TYPES.jeep` gets
+     a new `collisionDamage: 10` field (`vehicle.js`), applied in the same
+     ram-contact block in `game.js` that already dings the *building's*
+     health (`o.health -= this.vehicle.ramDamage`) -- gated so only the jeep
+     has `collisionDamage > 0`, the tank stays immune (its armor absorbs
+     ramming for free). Fires a `vehicleHit` event too, reusing the existing
+     hit sound/particle cue rather than adding a new one.
+  3. Reworked the lives system: every vehicle type now has a finite pool
+     (`VEHICLE_TYPES[type].lives`: jeep 3, tank 2, heli 2 -- previously jeep
+     had 2 and tank/heli were `Infinity`). The round-loss check in
+     `game.js`'s death handling changed from "did *this* type run out" to
+     "did *every* type run out" (`Object.values(this.lives).some((n) => n >
+     0)`); if the current type is out but another still has lives, the game
+     auto-switches `this.vehicleType` to the first type with lives left
+     (search order follows `Object.keys(this.lives)`, i.e. jeep, then tank,
+     then heli) so the next respawn comes back as that type instead of
+     ending the round. `getHudState()` now returns a `lives: {...}` object
+     (all three counts) instead of just `jeepLives`; `main.js`'s status line
+     shows `JEEPS: n · TANKS: n · HELIS: n`. Test coverage in
+     `test/sim.mjs` section 3 rewritten to drive through the whole garage
+     (kill all 3 jeeps -> auto-switch to tank -> kill both tanks -> auto-
+     switch to heli -> kill both helis -> round lost), replacing the old
+     "jeep 2-life / tank-heli-infinite" tests.
+  All changes covered by `node test/sim.mjs` (145 checks, all passing) except
+  the audio.js removal, which (like all audio) isn't exercised by the
+  headless suite -- verified by ear in-browser instead.
 - Added real background music (`src/music.js`'s `MusicPlayer`, wired into
   `main.js`): 3 tracks in `music/` are candidates for a random per-round
   pick (`battle-rage.mp3`, `battle-eternity.mp3`, `battle-song.mp3`), looped

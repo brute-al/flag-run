@@ -28,15 +28,18 @@ Then open `http://localhost:8000` in a browser.
 
 ## Vehicles
 
-Only the **jeep** can pick up and carry the flag — it's unarmed and has just
-2 lives; lose both jeeps and the round is over. The **tank** and
-**helicopter** are expendable support vehicles with unlimited redeploys and
-their own weapon, whose job is clearing turrets out of the jeep's way, not
-finishing the mission themselves.
+Only the **jeep** can pick up and carry the flag — it's unarmed and the most
+fragile of the three. Every vehicle type now has its own finite life pool
+(2 tanks, 2 helicopters, 3 jeeps by default) that lasts the whole round: lose
+all the lives across all three types and the round is over. Running out of
+just one type doesn't end things early — you're automatically switched into
+whichever type you've still got left, so the tank/heli can keep clearing the
+way even after the jeeps are gone (though without a jeep left, the flag can't
+actually be picked up again until the round resets).
 
-- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 2 lives total.
-- **Tank** — slow and planted, barely drifts, biggest health pool, slow heavy cannon. Unlimited lives.
-- **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. Unlimited lives.
+- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Very fragile: on top of taking damage from turret/gunfire like anything else, ramming a building bruises the jeep itself, not just the building.
+- **Tank** — slow and planted, barely drifts, biggest health pool, slow heavy cannon. 2 lives. Armored enough that ramming a building costs it nothing extra.
+- **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. 2 lives.
 
 Each has its own stats (top speed, grip, turn rate, health, weapon) defined
 in `src/vehicle.js`, and its own silhouette in `src/vehicleArt.js`.
@@ -46,8 +49,11 @@ clear a destructible building — hitting one hard enough chips away at its
 health too, and enough hits will knock it down outright. The tank hits much
 harder than the jeep (it can flat-out bulldoze a weak building by ramming
 alone), while the jeep's ramming is more of a nudge, not a real substitute
-for the tank's cannon. The helicopter never rams anything: it's aerial and
-flies straight over ground obstacles instead of colliding with them.
+for the tank's cannon. Unlike the tank, the jeep isn't armored for this: every
+time it rams a building, the impact costs the jeep some of its own health too
+(mild/moderate, not lethal in one hit) — "precious and important, but very
+weak." The helicopter never rams anything: it's aerial and flies straight
+over ground obstacles instead of colliding with them.
 
 **Powerups.** A handful of destructible buildings secretly hide a pickup —
 and unlike the rest of the neighborhood, a seeded building is unmistakable:
@@ -76,9 +82,11 @@ spot twice.
 5. Get the flag back inside your own base's circle to win. `R` to pick a
    vehicle and start a new round.
 6. If a vehicle's health hits zero it's destroyed (flag drops on the spot if
-   the jeep was carrying it) and it respawns at base after a short delay —
-   except the jeep, which only gets 2 lives total. Lose both and it's
-   "OUT OF JEEPS — ROUND LOST."
+   the jeep was carrying it) and it respawns at base after a short delay.
+   Each vehicle type has its own life pool (2 tanks, 2 helis, 3 jeeps); once
+   one type is spent you're auto-switched into whichever type still has
+   lives left. Only once every type is exhausted does the round actually
+   end: "OUT OF VEHICLES — ROUND LOST."
 
 ## Effects
 
@@ -119,18 +127,19 @@ else -- the engine hum, missile whoosh, hit/pickup chimes, turret-destroyed
 confirmation clank, and the fanfare -- is still fully synthesized. The
 engine hum is deliberately understated: filtered noise for the mechanical
 rumble plus a very quiet low tone for body, both scaling with speed, mixed
-much lower than a lead sound. The jeep's flag-run cue (`src/audio.js`'s
-`RunHomeMusic`) is a bright, driving 150bpm bass riff with a syncopated
-upbeat -- meant to feel like a triumphant getaway, not a horror drone.
+much lower than a lead sound.
 
 On top of all that, `src/music.js` (`MusicPlayer`) plays real background
 music: one of three tracks is picked at random each time a new round starts
 and loops quietly for the whole match, then crossfades out to a dedicated
 "flag-getting" track the moment the jeep grabs the flag, and crossfades
 back once it's dropped or captured. It uses plain `<audio>` elements rather
-than the Web Audio API machinery the rest of `audio.js`/`RunHomeMusic` runs
-on, since these are full songs (several MB each) rather than short
-one-shot cues -- see `music/` and `DEPLOY_NOTES.md` for the track sources.
+than the Web Audio API machinery the rest of `audio.js` runs on, since these
+are full songs (several MB each) rather than short one-shot cues -- see
+`music/` and `DEPLOY_NOTES.md` for the track sources. This is the only music
+cue for the jeep's flag run now -- there used to also be a synthesized
+"run home" loop in `audio.js`, but it played simultaneously underneath this
+real track, so it was removed rather than layering two songs at once.
 
 ## Real-world map
 
@@ -206,12 +215,15 @@ test/
 Run the logic test any time with `node test/sim.mjs` — it covers per-vehicle
 movement and the win condition (on the procedural arena), jeep-only flag
 pickup, tank/heli weapons damaging and destroying turrets, ramming a
-building down at speed (and that it scales with vehicle weight and that the
-aerial heli never rams), the jeep's 2-life round-loss condition (and that
-tank/heli never run out), mid-round vehicle switching at base, and — for the
-real-world map specifically — that buildings convert cleanly into obstacles,
-no building overlaps a base, the road network actually connects the two
-bases, and capture/win mechanics still work with real obstacles in the mix.
+building down at speed (and that it scales with vehicle weight, that the
+jeep alone takes self-damage from the impact, and that the aerial heli never
+rams), the shared finite-lives round-loss condition across all three vehicle
+types (auto-switching into whichever type still has lives left, and only
+ending the round once the whole garage is empty), mid-round vehicle
+switching at base, and — for the real-world map specifically — that
+buildings convert cleanly into obstacles, no building overlaps a base, the
+road network actually connects the two bases, and capture/win mechanics
+still work with real obstacles in the mix.
 
 ## Where this could go next
 
