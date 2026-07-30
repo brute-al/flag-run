@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FLAG RUN — Extraction Prototype</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="hud">
+    <div id="healthWrap"><div id="healthBar"></div></div>
+    <div id="statusLine"></div>
+    <div id="powerupStatus" class="hidden"></div>
+    <div id="flagStatus">FLAG: at enemy base</div>
+    <div id="message"></div>
+  </div>
+  <div id="swapPrompt" class="hidden">Press V to swap vehicle</div>
+  <canvas id="game"></canvas>
+  <div id="helpText">WASD / Arrow Keys to drive &middot; SPACE to fire (tank/heli only) &middot; F fires the heli's missile (arcs over rooftops) &middot; Q/E traverse the tank's turret (it rides along with the hull otherwise) or spin the heli in place &middot; on the heli, A/D strafe sideways relative to its nose &middot; some buildings hide powerups &mdash; blow one open and drive over the pickup &middot; V to swap vehicle at your base &middot; grab the enemy flag with the jeep and haul it home &middot; R to pick a vehicle and restart the round &middot; Xbox-style controller also supported: stick to drive/strafe, A/RT fire, B/LT secondary, bumpers turret/heli-rotate, Y swap, Start restart</div>
+
+  <div id="selectScreen">
+    <h1>CHOOSE YOUR RIDE</h1>
+    <div id="vehicleCards">
+      <button class="vehicleCard" data-vehicle="jeep">
+        <span class="vLabel">Jeep</span>
+        <span class="vDesc"></span>
+      </button>
+      <button class="vehicleCard" data-vehicle="tank">
+        <span class="vLabel">Tank</span>
+        <span class="vDesc"></span>
+      </button>
+      <button class="vehicleCard" data-vehicle="heli">
+        <span class="vLabel">Helicopter</span>
+        <span class="vDesc"></span>
+      </button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
