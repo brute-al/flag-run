@@ -733,15 +733,16 @@ console.log("\n=== Damage-tint color helper ===");
 
 // --- 15. Powerups hidden in buildings ---------------------------------------
 // A handful of buildings secretly carry a powerup (OVERCHARGE / BIG SHOT /
-// LASER). Knocking one down drops a pickup; driving over it starts a timed
-// buff; that buff modifies every shot fired while it's running.
+// LASER / ARMOR). Knocking one down drops a pickup; driving over it starts a
+// timed buff; that buff modifies every shot fired while it's running (or,
+// for ARMOR, every hit the vehicle takes instead).
 console.log("\n=== Powerups hidden in buildings ===");
 {
   const input = makeInput();
   const game = new Game(input);
   game.chooseVehicle("tank");
   const arena = game.arena;
-  const VALID_TYPES = ["overcharge", "bigShot", "laser"];
+  const VALID_TYPES = ["overcharge", "bigShot", "laser", "armor"];
 
   console.log("[seeding]");
   const seeded = arena.obstacles.filter((o) => o.hasPowerup);
@@ -794,7 +795,7 @@ console.log("\n=== Powerups hidden in buildings ===");
   const neutral = game._weaponModifiers();
   check(
     "no active powerup means neutral modifiers",
-    neutral.damageMult === 1 && neutral.radiusMult === 1 && !neutral.piercing
+    neutral.damageMult === 1 && neutral.radiusMult === 1 && !neutral.piercing && neutral.damageTakenMult === 1
   );
 
   game.activePowerup = { type: "overcharge", timeLeft: 5 };
@@ -807,7 +808,69 @@ console.log("\n=== Powerups hidden in buildings ===");
 
   game.activePowerup = { type: "laser", timeLeft: 5 };
   check("LASER makes shots piercing", game._weaponModifiers().piercing === true);
+
+  console.log("[ARMOR: defensive, not offensive]");
+  game.activePowerup = { type: "armor", timeLeft: 5 };
+  const armorMod = game._weaponModifiers();
+  check("ARMOR doesn't touch outgoing damage or radius", armorMod.damageMult === 1 && armorMod.radiusMult === 1);
+  check("ARMOR isn't piercing", armorMod.piercing === false);
+  check("ARMOR halves incoming damage", armorMod.damageTakenMult === 0.5);
+
+  // Parked inside the player's own base -- guaranteed clear of any building
+  // (they're filtered out near both bases, see Arena's constructor), so the
+  // bullet can't get intercepted by an obstacle before reaching the vehicle.
+  const baseX = arena.playerBase.x;
+  const baseY = arena.playerBase.y;
+
+  console.log("[ARMOR actually halves damage taken from a hit]");
+  game.state = "playing";
+  game.health = 100;
+  game.vehicle.x = baseX;
+  game.vehicle.y = baseY;
+  game.bullets = [new Bullet(baseX, baseY, 0, 0, 20, false)]; // enemy bullet, sitting right on the vehicle
+  game.update(dt);
+  check("a 20-damage hit under ARMOR only took 10 health", game.health === 90);
   game.activePowerup = null;
+
+  console.log("[without ARMOR, the same hit takes full damage]");
+  game.health = 100;
+  game.vehicle.x = baseX;
+  game.vehicle.y = baseY;
+  game.bullets = [new Bullet(baseX, baseY, 0, 0, 20, false)];
+  game.update(dt);
+  check("the same 20-damage hit with no powerup took the full 20", game.health === 80);
+}
+
+// --- 15b. Powerup seeding re-randomizes every round -------------------------
+// _seedPowerups runs again each time reset() builds a brand-new Arena (i.e.
+// every time the player picks a vehicle from the select screen), so which
+// buildings hide a powerup -- and which types -- shouldn't be frozen at
+// first load. This can't assert the *exact* set differs (it's random, so an
+// assertion like that would itself be flaky -- see the ramming section's
+// note on avoiding RNG-dependent tests), but it can assert every fresh Arena
+// gets its own valid, independent seeding.
+console.log("\n=== Powerup seeding re-randomizes each round ===");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("tank");
+  const arenaRound1 = game.arena;
+  const seededRound1 = arenaRound1.obstacles.filter((o) => o.hasPowerup);
+
+  game.chooseVehicle("tank"); // picking a vehicle again = a whole new round
+  const arenaRound2 = game.arena;
+  const seededRound2 = arenaRound2.obstacles.filter((o) => o.hasPowerup);
+
+  check("a new round gets a brand-new Arena instance", arenaRound2 !== arenaRound1);
+  check("the new round still seeds a handful of powerup buildings", seededRound2.length > 0 && seededRound2.length <= 5);
+  check(
+    "every re-seeded building has a valid powerup type",
+    seededRound2.every((o) => ["overcharge", "bigShot", "laser", "armor"].includes(o.powerupType))
+  );
+  check(
+    "the new round's seeded buildings are fresh objects, not the old round's",
+    seededRound2.every((o) => !seededRound1.includes(o))
+  );
 }
 
 // --- 16. Laser piercing bullets pass through obstacles and turrets --------
