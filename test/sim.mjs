@@ -7,6 +7,8 @@
 import { Game } from "../src/game.js";
 import { VEHICLE_TYPES, Vehicle } from "../src/vehicle.js";
 import { Bullet } from "../src/entities.js";
+import { ParticleSystem } from "../src/effects.js";
+import { Camera } from "../src/camera.js";
 
 const dt = 1 / 60;
 let allPass = true;
@@ -988,6 +990,87 @@ console.log("[contact below the ram-speed threshold does no damage]");
   input.set({ throttle: 0, turn: 0 });
   for (let i = 0; i < 30; i++) game.update(dt);
   check("resting against a building below the speed threshold doesn't ram it", target.health === startHealth);
+}
+
+// --- 18. Particle/effects system (explosions, sparks, muzzle flashes, dust) -
+// Purely visual (see effects.js's header comment) -- these checks work
+// directly against ParticleSystem/Camera in isolation, plus a couple of
+// integration checks that Game actually spawns particles at the right
+// moments. None of this touches gameplay state, so it can't regress any of
+// the mechanic checks above.
+console.log("\n=== Particle/effects system ===");
+{
+  const ps = new ParticleSystem();
+  console.log("[explosion]");
+  ps.explosion(0, 0, "#e8843a", 1);
+  check("an explosion spawns multiple particles", ps.particles.length > 5);
+  const countAfterSpawn = ps.particles.length;
+  for (let i = 0; i < 200; i++) ps.update(1 / 60); // well past every particle's life
+  check("particles fully decay and get swept away over time", ps.particles.length === 0);
+  check("something was actually spawned to decay from", countAfterSpawn > 0);
+}
+{
+  console.log("[spark / muzzleFlash / dust each spawn something]");
+  const ps = new ParticleSystem();
+  ps.spark(0, 0);
+  check("spark() adds particles", ps.particles.length > 0);
+  ps.muzzleFlash(0, 0, 0);
+  check("muzzleFlash() adds a particle", ps.particles.length > 1);
+  ps.dust(0, 0);
+  check("dust() adds a particle", ps.particles.length > 2);
+}
+
+console.log("\n=== Camera screen shake ===");
+{
+  const cam = new Camera(0, 0);
+  const before = cam.worldToScreen(0, 0, 800, 600);
+  check("with no shake triggered, worldToScreen is exactly centered", before.x === 400 && before.y === 300);
+
+  cam.shake(20, 0.3);
+  cam.update(1 / 60, 0, 0); // camera target == current pos, so this isolates the shake offset
+  const during = cam.worldToScreen(0, 0, 800, 600);
+  console.log("[shake in progress]");
+  check("an active shake offsets worldToScreen away from center", during.x !== 400 || during.y !== 300);
+
+  for (let i = 0; i < 60; i++) cam.update(1 / 60, 0, 0); // run well past the 0.3s duration
+  const after = cam.worldToScreen(0, 0, 800, 600);
+  console.log("[shake decays out]");
+  check("shake settles back to exactly centered once its duration elapses", after.x === 400 && after.y === 300);
+}
+
+console.log("\n=== Game wires particles/shake into actual events ===");
+{
+  const input = makeInput();
+  const game = new Game(input);
+  game.chooseVehicle("tank");
+
+  console.log("[firing the cannon spawns a muzzle flash]");
+  game.vehicle.weapon.cooldown = 0;
+  input.set({ throttle: 0, turn: 0, fire: true });
+  const countBeforeFire = game.particles.particles.length;
+  game.update(dt);
+  check("firing added at least one particle (the muzzle flash)", game.particles.particles.length > countBeforeFire);
+  input.set({ throttle: 0, turn: 0, fire: false });
+
+  console.log("[destroying a building triggers an explosion + camera shake]");
+  const target = game.arena.obstacles.find((o) => o.destructible && !o.destroyed);
+  check("found a destructible building to test against", !!target);
+  if (target) {
+    const countBeforeDestroy = game.particles.particles.length;
+    target.health = 0;
+    game._destroyBuilding(target);
+    check("destroying a building adds explosion particles", game.particles.particles.length > countBeforeDestroy);
+    check("destroying a building kicks off a camera shake", game.camera.shakeTime > 0);
+  }
+
+  console.log("[vehicle destruction triggers a bigger explosion + stronger shake]");
+  game.camera.shakeTime = 0;
+  game.camera.shakeMag = 0;
+  const countBeforeVehicleDeath = game.particles.particles.length;
+  game.health = 0;
+  game.update(dt);
+  check("the vehicle exploding adds particles", game.particles.particles.length > countBeforeVehicleDeath);
+  check("the vehicle exploding kicks off a (stronger) camera shake", game.camera.shakeMag >= 12);
 }
 
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
