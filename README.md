@@ -84,15 +84,18 @@ spot twice.
 
 Explosions, sparks, muzzle flashes, and dust give combat some visual weight:
 firing kicks off a muzzle flash at the gun tip, every bullet impact throws a
-quick spark, a destroyed building blows apart into flying debris and smoke,
-and a destroyed vehicle or turret does the same but bigger. Big destructions
-(vehicle, turret, building) also kick the camera with a short screen shake so
-they read as an actual impact, not just a health bar dropping to zero.
-Driving fast in a ground vehicle kicks up a trail of dust behind it (the
-helicopter skips this — it's flying, not kicking up gravel). All of this
-lives in `src/effects.js` (`ParticleSystem`) plus a small shake extension to
-`src/camera.js`; it's purely decorative and never touches game state, so it
-can't affect anything the headless test suite checks.
+quick spark, a destroyed building blows apart into flying debris and smoke.
+A destroyed vehicle or turret gets a proper fireball instead — flame
+particles that cool from a hot yellow core through orange and red to smoky
+char, a bright detonation flash, and a black smoke column that lingers
+after the fire dies down. Big destructions (vehicle, turret, building) also
+kick the camera with a short screen shake so they read as an actual impact,
+not just a health bar dropping to zero. Driving fast in a ground vehicle
+kicks up a trail of dust behind it (the helicopter skips this — it's
+flying, not kicking up gravel). All of this lives in `src/effects.js`
+(`ParticleSystem`) plus a small shake extension to `src/camera.js`; it's
+purely decorative and never touches game state, so it can't affect anything
+the headless test suite checks.
 
 ## Art style & audio
 
@@ -101,13 +104,24 @@ outlines, one hard-edged highlight band per shape, faceted (not perfectly
 round) rocks. It's a 2D stand-in for a proper cel-shaded 3D look — see
 "Where this could go next" below.
 
-All sound is synthesized live with the Web Audio API in `src/audio.js` —
-there are no sampled audio files, so nothing to license or download. The
+Most sound is synthesized live with the Web Audio API in `src/audio.js`.
+The exception is gunfire and explosions: turret fire, the heli's chaingun,
+the tank's cannon, and both explosion cues (turret vs. vehicle/building)
+layer in a short real recording (`sfx/`, four small CC0/royalty-free clips
+sourced from Pixabay — see `DEPLOY_NOTES.md` for the specific source pages)
+on top of the original synthesized version, since a real recording reads as
+"war" in a way a pure oscillator/noise burst can't. Each cue plays its
+sample with a little random pitch/gain jitter so rapid retriggering (the
+chaingun firing several times a second) doesn't sound like the same clip
+looping, and quietly falls back to the synthesized version if a sample
+hasn't finished loading yet -- sound is never silently missing. Everything
+else -- the engine hum, missile whoosh, hit/pickup chimes, turret-destroyed
+confirmation clank, and the fanfare -- is still fully synthesized. The
 engine hum is deliberately understated: filtered noise for the mechanical
 rumble plus a very quiet low tone for body, both scaling with speed, mixed
-much lower than a lead sound. One-shot cues cover turret fire, taking a hit,
-firing the cannon/chaingun, a turret getting hit or destroyed, an explosion
-on vehicle loss, a flag-pickup chime, and a mission-complete fanfare.
+much lower than a lead sound. The jeep's flag-run cue (`src/audio.js`'s
+`RunHomeMusic`) is a bright, driving 150bpm bass riff with a syncopated
+upbeat -- meant to feel like a triumphant getaway, not a horror drone.
 
 ## Real-world map
 
@@ -170,7 +184,8 @@ src/
   mapData.js      generated neighborhood data (buildings + roads), see "Real-world map" below
   entities.js     Flag, Turret, Bullet
   game.js         orchestrates state: select, pickup, capture, damage, respawn, win, sound events
-  audio.js        Web Audio synth engine (engine hum + one-shot SFX)
+  audio.js        Web Audio synth engine (engine hum + one-shot SFX) + 4 real gunfire/explosion samples
+sfx/              4 short CC0 gunshot/explosion recordings (see DEPLOY_NOTES.md for sources)
 tools/
   convert_osm.py  turns an OpenStreetMap .osm export into src/mapData.js
 test/

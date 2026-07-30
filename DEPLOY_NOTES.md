@@ -3,6 +3,26 @@
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
+- Added 4 real gunfire/explosion samples (`sfx/`) layered over the
+  synthesized versions of turret fire, heli chaingun, tank cannon, and both
+  explosion cues (`src/audio.js`'s `_playSample()`), plus fiery vehicle/
+  turret explosions (`ParticleSystem.fieryExplosion()` in `src/effects.js`)
+  and a reworked upbeat/major-key flag-run music cue (`RunHomeMusic` in
+  `src/audio.js`, replacing the old dissonant `TensionMusic` drone). Sample
+  sources, all CC0/royalty-free, no attribution required (Pixabay Content
+  License), downloaded by the user and uploaded into the chat since this
+  sandbox's network allowlist only reaches github.com directly (confirmed
+  blocked: kenney.nl, mixkit.co, opengameart.org's own CDN, raw file hosts
+  in general):
+  - `sfx/gunshot-rifle.mp3` — https://pixabay.com/sound-effects/film-special-effects-rifle-gunshot-99749/
+  - `sfx/gunshot-cannon.mp3` — https://pixabay.com/sound-effects/film-special-effects-single-gunshot-54-40780/
+  - `sfx/explosion-medium.mp3` — https://pixabay.com/sound-effects/film-special-effects-medium-explosion-40472/
+  - `sfx/explosion-loud.mp3` — https://pixabay.com/sound-effects/film-special-effects-loud-explosion-425457/
+  Each sample-backed cue falls back to its original synthesized version if
+  the sample hasn't loaded yet (`SoundEngine._playSample()` returns `false`
+  in that case) — sound is never silently missing. `node test/sim.mjs`
+  doesn't touch `audio.js` at all (no AudioContext in Node), so none of this
+  is covered by the headless suite; verified manually in-browser instead.
 - **IMPORTANT WORKFLOW LESSON (2026-07-30):** After clicking "Commit changes"
   on GitHub's web upload UI, two commits in a row silently failed to land
   (the page navigated, no visible error, but the file's own commit history
