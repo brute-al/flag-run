@@ -10,6 +10,14 @@ const RESPAWN_DELAY = 1.6;
 // How long a picked-up powerup buff lasts, in seconds.
 const POWERUP_DURATION = 15;
 
+// Ramming a destructible building only counts as an "impact" (not just
+// resting against it) above this speed, and impacts are throttled by a
+// cooldown so continuous contact doesn't melt a building in a single frame
+// -- it should feel like repeated bangs, not an instant kill.
+const RAM_SPEED_THRESHOLD = 50;
+const RAM_COOLDOWN = 0.4;
+const RAM_CONTACT_SLACK = 6;
+
 // Gameplay effect of each powerup type, applied to every shot fired while
 // it's active (see _weaponModifiers below). Visual identity (label/color)
 // lives in entities.js's POWERUP_INFO instead, since that's shared with the
@@ -78,6 +86,7 @@ export class Game {
     this.powerupPickups = []; // floating pickups spawned when a seeded building falls
     this.activePowerup = null; // { type, timeLeft } while a buff is running
     this.health = this.vehicle.maxHealth;
+    this.ramCooldown = 0; // see RAM_COOLDOWN in update()
     // Lives are per-vehicle-type and last the whole round (they persist
     // across mid-round vehicle switches and respawns). Only the jeep has a
     // finite pool — running out of jeeps ends the round.
@@ -211,6 +220,28 @@ export class Game {
     // Aerial vehicles (helicopter) fly over ground obstacles.
     if (!this.vehicle.isAerial) {
       this.arena.resolveObstacleCollisions(this.vehicle);
+    }
+
+    // Ramming: a grounded vehicle moving at speed and in contact with a
+    // destructible building chips away at it, on a cooldown so sustained
+    // contact reads as repeated impacts rather than an instant kill. The
+    // tank's high ramDamage means it can flat-out bulldoze a weak building;
+    // the jeep's is low enough that it's a poor substitute for the tank's
+    // cannon. Aerial vehicles never collide with obstacles, so they're
+    // naturally excluded.
+    if (this.ramCooldown > 0) this.ramCooldown -= dt;
+    if (!this.vehicle.isAerial && this.vehicle.ramDamage > 0 && this.vehicle.speed > RAM_SPEED_THRESHOLD && this.ramCooldown <= 0) {
+      for (const o of this.arena.obstacles) {
+        if (o.destroyed || !o.destructible) continue;
+        const d = Math.hypot(this.vehicle.x - o.x, this.vehicle.y - o.y);
+        if (d < o.radius + this.vehicle.radius + RAM_CONTACT_SLACK) {
+          o.health -= this.vehicle.ramDamage;
+          this.events.push("buildingHit");
+          this.ramCooldown = RAM_COOLDOWN;
+          if (o.health <= 0) this._destroyBuilding(o);
+          break;
+        }
+      }
     }
 
     this.camera.update(dt, this.vehicle.x, this.vehicle.y);

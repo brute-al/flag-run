@@ -31,6 +31,10 @@ export const VEHICLE_TYPES = {
     canCarryFlag: true,
     lives: 2,
     weapon: null,
+    // Ramming: hitting a destructible building at speed chips away at it.
+    // The jeep is light -- it can nudge a weak building down eventually, but
+    // it's a poor substitute for the tank's cannon.
+    ramDamage: 5,
   },
   tank: {
     label: "Tank",
@@ -56,6 +60,9 @@ export const VEHICLE_TYPES = {
     // of that -- like a real turret ring bolted to a moving hull.
     hasTurret: true,
     turretTurnRate: 3.2,
+    // Heavy and armored -- the tank can straight-up bulldoze a weak building
+    // by ramming it repeatedly, on top of shooting it.
+    ramDamage: 22,
   },
   heli: {
     label: "Helicopter",
@@ -107,6 +114,10 @@ export class Vehicle {
     this.isAerial = preset.isAerial;
     this.canCarryFlag = preset.canCarryFlag;
     this.carrying = null; // flag reference, if any
+    // How hard this vehicle dings a destructible building on contact, at
+    // speed, per hit (see Game's ramCooldown handling). 0 for aerial types,
+    // which never collide with ground obstacles in the first place.
+    this.ramDamage = preset.ramDamage || 0;
 
     // Weapon state travels with the vehicle instance so cooldown resets
     // cleanly on respawn/switch. `null` for unarmed vehicles (the jeep).
