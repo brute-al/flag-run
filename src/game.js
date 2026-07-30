@@ -448,7 +448,10 @@ export class Game {
             this.particles.spark(bullet.x, bullet.y, "#8fe3ff");
             if (turret.destroyed) {
               this.events.push("turretDestroyed");
-              this.particles.explosion(turret.x, turret.y, "#7a2e28", 1.3);
+              // A turret is a real fuel/ammo detonation, not crumbling
+              // masonry, so it gets the fireball treatment (flames + a
+              // black smoke column) rather than the plain rubble explosion.
+              this.particles.fieryExplosion(turret.x, turret.y, 1.3);
               this.camera.shake(8, 0.3);
             }
             if (!bullet.piercing) break;
@@ -470,7 +473,10 @@ export class Game {
 
     if (this.health <= 0 && this.state === "playing") {
       this.events.push("vehicleDestroyed");
-      this.particles.explosion(this.vehicle.x, this.vehicle.y, "#e8843a", 1.6);
+      // Losing your vehicle is the biggest hit in the game -- give it the
+      // full fireball (flames cooling to black smoke) instead of the plain
+      // rubble explosion buildings get.
+      this.particles.fieryExplosion(this.vehicle.x, this.vehicle.y, 1.6);
       this.camera.shake(12, 0.4);
       if (this.vehicle.carrying) {
         this.flag.dropAt(this.vehicle.x, this.vehicle.y);

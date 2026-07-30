@@ -14,7 +14,7 @@ export class SoundEngine {
     this.ctx = new AudioContextClass();
     this.noiseBuffer = this._makeNoiseBuffer();
     this._buildEngineHum();
-    this.tension = new TensionMusic(this.ctx, this.noiseBuffer);
+    this.tension = new RunHomeMusic(this.ctx, this.noiseBuffer);
   }
 
   // Must be called from within a user-gesture handler (keydown/click) —
@@ -425,68 +425,35 @@ export class SoundEngine {
   }
 }
 
-// A small looping "tense chase" cue for the jeep's run home with the flag:
-// a dissonant, slowly-throbbing low drone under a steady urgent pulse, with
-// a ticking accent on the off-beat. Entirely synthesized (oscillators +
-// filtered noise), same as every other sound in this file -- nothing
-// sampled, so there's no licensing question and no audio file to fetch.
-// Runs on a standard Web Audio "lookahead scheduler" (schedule a little
-// ahead of real time, re-check on a short interval) so the beat stays tight
-// even though setTimeout itself isn't precise.
-class TensionMusic {
+// A small looping "let's go" cue for the jeep's run home with the flag: a
+// bright, driving bass riff in a consonant major key under a syncopated
+// upbeat and a crisp shaker-like tick -- meant to feel like a triumphant
+// getaway, not a horror-movie dread drone (that's what this replaced).
+// Entirely synthesized (oscillators + filtered noise), same as every other
+// sound in this file -- nothing sampled, so there's no licensing question
+// and no audio file to fetch. Runs on a standard Web Audio "lookahead
+// scheduler" (schedule a little ahead of real time, re-check on a short
+// interval) so the beat stays tight even though setTimeout itself isn't
+// precise.
+class RunHomeMusic {
   constructor(ctx, sharedNoiseBuffer) {
     this.ctx = ctx;
     this.noiseBuffer = sharedNoiseBuffer;
     this.playing = false;
-    this.tempo = 132; // bpm -- brisk, urgent
+    this.tempo = 150; // bpm -- brisk and driving, a sprint not a dirge
     this.beatDuration = 60 / this.tempo;
     this.nextNoteTime = 0;
     this.beatIndex = 0;
     this.schedulerTimer = null;
 
+    // An 8-beat bass riff walking a bright, consonant A-major-flavored
+    // progression (A - C#4 - E4 - A - B3 - C#4) -- replaces the old drone's
+    // deliberately dissonant interval with something that actually resolves.
+    this.bassNotes = [220, 220, 277.18, 329.63, 220, 220, 246.94, 277.18];
+
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0;
     this.masterGain.connect(this.ctx.destination);
-
-    this._buildDrone();
-  }
-
-  // Two closely-detuned low sawtooths (a beating, slightly-off interval)
-  // through a dark lowpass, with a slow tremolo -- the sustained "something's
-  // wrong" bed the pulse sits on top of. Built once and left running; only
-  // masterGain's level actually turns it on/off, so start/stop is instant
-  // and click-free.
-  _buildDrone() {
-    this.droneOsc1 = this.ctx.createOscillator();
-    this.droneOsc1.type = "sawtooth";
-    this.droneOsc1.frequency.value = 73.4; // D2
-    this.droneOsc2 = this.ctx.createOscillator();
-    this.droneOsc2.type = "sawtooth";
-    this.droneOsc2.frequency.value = 77.8; // deliberately dissonant against D2
-
-    this.droneFilter = this.ctx.createBiquadFilter();
-    this.droneFilter.type = "lowpass";
-    this.droneFilter.frequency.value = 380;
-
-    this.droneGain = this.ctx.createGain();
-    this.droneGain.gain.value = 0.16;
-
-    this.droneOsc1.connect(this.droneFilter);
-    this.droneOsc2.connect(this.droneFilter);
-    this.droneFilter.connect(this.droneGain);
-    this.droneGain.connect(this.masterGain);
-    this.droneOsc1.start();
-    this.droneOsc2.start();
-
-    // Slow tremolo LFO modulating the drone's own gain for an uneasy pulse
-    // independent of the beat.
-    this.tremoloLfo = this.ctx.createOscillator();
-    this.tremoloLfo.frequency.value = 0.35;
-    this.tremoloLfoGain = this.ctx.createGain();
-    this.tremoloLfoGain.gain.value = 0.07;
-    this.tremoloLfo.connect(this.tremoloLfoGain);
-    this.tremoloLfoGain.connect(this.droneGain.gain);
-    this.tremoloLfo.start();
   }
 
   start() {
@@ -494,7 +461,7 @@ class TensionMusic {
     this.playing = true;
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(1, now, 0.35);
+    this.masterGain.gain.setTargetAtTime(1, now, 0.15);
     this.beatIndex = 0;
     this.nextNoteTime = now + 0.05;
     this._scheduleLoop();
@@ -507,7 +474,7 @@ class TensionMusic {
     this.playing = false;
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
-    this.masterGain.gain.setTargetAtTime(0, now, hard ? 0.05 : 0.5);
+    this.masterGain.gain.setTargetAtTime(0, now, hard ? 0.05 : 0.3);
     if (this.schedulerTimer) {
       clearTimeout(this.schedulerTimer);
       this.schedulerTimer = null;
@@ -528,34 +495,52 @@ class TensionMusic {
   }
 
   _scheduleBeat(index, time) {
-    // A low pulse thump on every beat -- the "heartbeat" driving the tempo.
+    // A punchy, filtered plucked bass note on every beat, stepping through
+    // the riff -- the harmonic engine of the cue.
+    const note = this.bassNotes[index % this.bassNotes.length];
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(62, time);
-    osc.frequency.exponentialRampToValueAtTime(36, time + 0.16);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(note, time);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(1800, time);
+    filter.frequency.exponentialRampToValueAtTime(500, time + 0.18);
     gain.gain.setValueAtTime(0.001, time);
-    gain.gain.exponentialRampToValueAtTime(0.32, time + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.26);
-    osc.connect(gain).connect(this.masterGain);
+    gain.gain.exponentialRampToValueAtTime(0.24, time + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
+    osc.connect(filter).connect(gain).connect(this.masterGain);
     osc.start(time);
-    osc.stop(time + 0.3);
+    osc.stop(time + 0.24);
 
-    // A ticking off-beat accent (short filtered noise click) every other
-    // beat, for a bit of rhythmic urgency under the pulse.
-    if (index % 2 === 1) {
-      const src = this.ctx.createBufferSource();
-      src.buffer = this.noiseBuffer;
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = "highpass";
-      filter.frequency.value = 3200;
-      const tickGain = this.ctx.createGain();
-      tickGain.gain.setValueAtTime(0.001, time);
-      tickGain.gain.exponentialRampToValueAtTime(0.11, time + 0.005);
-      tickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-      src.connect(filter).connect(tickGain).connect(this.masterGain);
-      src.start(time);
-      src.stop(time + 0.06);
-    }
+    // A bright triangle note on the off-beat ("and"), an octave up from the
+    // bass -- this syncopation is what gives the loop forward momentum
+    // instead of a flat, plodding pulse.
+    const upTime = time + this.beatDuration / 2;
+    const up = this.ctx.createOscillator();
+    const upGain = this.ctx.createGain();
+    up.type = "triangle";
+    up.frequency.value = note * 2;
+    upGain.gain.setValueAtTime(0.001, upTime);
+    upGain.gain.exponentialRampToValueAtTime(0.1, upTime + 0.01);
+    upGain.gain.exponentialRampToValueAtTime(0.001, upTime + 0.1);
+    up.connect(upGain).connect(this.masterGain);
+    up.start(upTime);
+    up.stop(upTime + 0.12);
+
+    // A crisp shaker-like tick every beat (louder on the downbeat), keeping
+    // the groove feeling energetic rather than sparse.
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const hatFilter = this.ctx.createBiquadFilter();
+    hatFilter.type = "highpass";
+    hatFilter.frequency.value = 6000;
+    const tickGain = this.ctx.createGain();
+    tickGain.gain.setValueAtTime(0.001, time);
+    tickGain.gain.exponentialRampToValueAtTime(index % 2 === 0 ? 0.1 : 0.05, time + 0.003);
+    tickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+    src.connect(hatFilter).connect(tickGain).connect(this.masterGain);
+    src.start(time);
+    src.stop(time + 0.05);
   }
 }

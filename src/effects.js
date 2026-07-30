@@ -79,6 +79,98 @@ export class ParticleSystem {
     }
   }
 
+  // A punchier "fireball" variant used specifically for a vehicle or turret
+  // going down -- unlike the plainer `explosion()` (used for rubble/masonry),
+  // this layers a bright detonation flash, flame particles that cool from
+  // hot yellow through orange to smoky black over their life, and a thick
+  // black smoke column that lingers well after the fire itself dies out.
+  fieryExplosion(x, y, scale = 1) {
+    // Bright core flash -- the instant of detonation.
+    this.particles.push({
+      type: "flashBurst",
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      radius: 6 * scale,
+      growth: 55 * scale,
+      life: 0.14,
+      maxLife: 0.14,
+    });
+
+    // Flame particles: hot yellow -> orange -> red -> smoky char over their
+    // lifetime, thrown outward and slightly upward like a real fireball
+    // rather than flat single-color debris.
+    const flameCount = Math.round(18 * scale);
+    for (let i = 0; i < flameCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (50 + Math.random() * 170) * scale;
+      this.particles.push({
+        type: "flame",
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 30 * scale,
+        drag: 0.9,
+        size: (5 + Math.random() * 6) * scale,
+        life: 0.55 + Math.random() * 0.55,
+        maxLife: 1.1,
+      });
+    }
+
+    // Charred debris chips flung by the blast.
+    const chipCount = Math.round(8 * scale);
+    for (let i = 0; i < chipCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (70 + Math.random() * 150) * scale;
+      this.particles.push({
+        type: "chip",
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        drag: 0.92,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() * 2 - 1) * 8,
+        size: (3 + Math.random() * 4) * scale,
+        color: "#332c26",
+        life: 0.5 + Math.random() * 0.4,
+        maxLife: 0.9,
+      });
+    }
+
+    this.particles.push({
+      type: "ring",
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      radius: 4 * scale,
+      growth: 260 * scale,
+      color: "#ffb14a",
+      life: 0.35,
+      maxLife: 0.35,
+    });
+
+    // Thick black smoke column, slower and much longer-lived than the fire
+    // itself so the site keeps pluming for a couple seconds afterward.
+    const smokeCount = Math.round(7 * scale);
+    for (let i = 0; i < smokeCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      this.particles.push({
+        type: "fireSmoke",
+        x,
+        y,
+        vx: Math.cos(angle) * 10,
+        vy: Math.sin(angle) * 10 - 26,
+        drag: 0.95,
+        size: (12 + Math.random() * 14) * scale,
+        life: 1.0 + Math.random() * 0.7,
+        maxLife: 1.7,
+      });
+    }
+  }
+
   // A small, quick spray at a bullet impact point (building/turret/vehicle
   // hit) -- reads as "that shot actually landed" without a full explosion.
   spark(x, y, color = "#ffd166") {
@@ -167,6 +259,33 @@ export class ParticleSystem {
         ctx.fillStyle = p.color;
         ctx.beginPath();
         ctx.arc(s.x, s.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === "flame") {
+        // Cools from a bright yellow core through orange and red to a
+        // smoky charred color as it ages, and shrinks slightly as it goes.
+        const age = 1 - lifeFrac;
+        let color;
+        if (age < 0.3) color = "#fff3b0";
+        else if (age < 0.55) color = "#ffb03a";
+        else if (age < 0.8) color = "#e8531f";
+        else color = "#3a2018";
+        ctx.globalAlpha = Math.min(1, lifeFrac + 0.15);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, p.size * (1.1 - age * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === "fireSmoke") {
+        ctx.globalAlpha = lifeFrac * 0.55;
+        ctx.fillStyle = "#221f1b";
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, p.size * (1.5 - lifeFrac * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === "flashBurst") {
+        const r = p.radius + (1 - lifeFrac) * p.growth;
+        ctx.globalAlpha = lifeFrac * 0.9;
+        ctx.fillStyle = "#fff6d0";
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
         ctx.fill();
       } else if (p.type === "flash") {
         ctx.save();
