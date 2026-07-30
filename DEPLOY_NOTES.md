@@ -1,10 +1,36 @@
 # Deploy notes (read this before redeploying)
 
+## NEXT UP — where we left off (2026-07-30)
+Everything below is shipped, tested, and live. The one open item is a
+**forward-looking design question the user asked but did NOT request built
+yet**: a mirrored, double-length version of the map with a computer-controlled
+opponent racing for the player's flag while the player races for the
+opponent's. Do not start building this unless the user explicitly asks —
+last session's answer to "could we do this" was purely a feasibility
+discussion. If/when asked to actually build it, the rough shape discussed was:
+- Mirror the existing OSM building/road layout around the center point
+  (simpler and guaranteed-fair vs. sourcing a second real-world strip) to
+  double arena height, giving the AI its own base/flag symmetric to the
+  player's.
+- A second `Vehicle` instance driven by simple AI (not player input): path
+  toward the player's flag along the road graph (the BFS connectivity check
+  in `test/sim.mjs` section 5 already builds the road adjacency graph this
+  could reuse for real pathfinding), fire when in range, respawn under the
+  same lives rules as the player.
+- Win condition becomes symmetric: detect either side delivering the other's
+  flag home, plus probably some rubber-banding/tuning so the AI is neither
+  trivial nor unfair.
+- Scope note given to the user: this is a real feature arc (new AI module +
+  symmetric map generation + dual win-condition logic), not a quick patch
+  like the three fixes below it.
+
 ## Current live state (as of 2026-07-30)
 - Live at https://flag-runner-extraction.vercel.app (Vercel project
   `flag-runner-extraction`, team `team_ZW7QOF2JqfjosJSSxi7bOT4F`).
-- **Latest batch (not yet pushed as of writing this entry):** three changes
-  in response to user playtesting feedback:
+- **Latest batch, pushed and deployed this session:** three changes
+  in response to user playtesting feedback (commits `c62ab88`, `6b27bde`,
+  `8f1d884`, all on top of `aad7eab`; Vercel deployment `dpl_AZ6RKnFGMQrpn2nE3WqCxgrQzKnR`
+  confirmed READY at this commit):
   1. Removed the old synthesized `RunHomeMusic` class/`this.tension` calls
      from `src/audio.js` entirely -- it used to start on `flagPickup` and
      stop on `flagCapture`/`flagDropped`/`roundReset`, but that meant it
