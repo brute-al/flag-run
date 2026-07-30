@@ -3,6 +3,7 @@ import { GamepadInput } from "./gamepadInput.js";
 import { CombinedInput } from "./combinedInput.js";
 import { Game } from "./game.js";
 import { SoundEngine } from "./audio.js";
+import { MusicPlayer } from "./music.js";
 import { VEHICLE_TYPES } from "./vehicle.js";
 
 const canvas = document.getElementById("game");
@@ -34,6 +35,7 @@ const gamepadInput = new GamepadInput();
 const input = new CombinedInput(keyboardInput, gamepadInput);
 const game = new Game(input);
 const sound = new SoundEngine();
+const music = new MusicPlayer();
 
 // Vehicle-select overlay is used two ways: `swapMode = false` starts a whole
 // new round (game.chooseVehicle), `swapMode = true` swaps mid-round without
@@ -57,6 +59,7 @@ function closeSelectScreen() {
 for (const card of document.querySelectorAll(".vehicleCard")) {
   card.addEventListener("click", () => {
     sound.resume(); // first user gesture: unlock audio in browsers that require it
+    music.resume();
     const type = card.dataset.vehicle;
     if (swapMode) game.switchVehicle(type);
     else game.chooseVehicle(type);
@@ -66,6 +69,7 @@ for (const card of document.querySelectorAll(".vehicleCard")) {
 
 window.addEventListener("keydown", (e) => {
   sound.resume();
+  music.resume();
   if (e.code === "KeyR") {
     openSelectScreen(false);
   } else if (e.code === "KeyV" && game.state === "playing" && !game.paused && game.isAtOwnBase()) {
@@ -87,6 +91,7 @@ function loop(now) {
   const restartHeld = gamepadInput.isRestartHeld();
   if (restartHeld && !prevGamepadRestart) {
     sound.resume();
+    music.resume();
     openSelectScreen(false);
   }
   prevGamepadRestart = restartHeld;
@@ -94,6 +99,7 @@ function loop(now) {
   const swapHeld = gamepadInput.isSwapHeld();
   if (swapHeld && !prevGamepadSwap && game.state === "playing" && !game.paused && game.isAtOwnBase()) {
     sound.resume();
+    music.resume();
     openSelectScreen(true);
   }
   prevGamepadSwap = swapHeld;
@@ -101,7 +107,10 @@ function loop(now) {
   game.update(dt);
   game.draw(ctx, canvas.width, canvas.height);
 
-  for (const event of game.drainEvents()) sound.handleEvent(event);
+  for (const event of game.drainEvents()) {
+    sound.handleEvent(event);
+    music.handleEvent(event);
+  }
   const engineActive = game.state === "playing";
   const speedFrac = engineActive ? game.vehicle.speed / game.vehicle.maxSpeed : 0;
   sound.setEngineIntensity(speedFrac, engineActive);
