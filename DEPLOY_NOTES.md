@@ -1,16 +1,20 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-30)
-Duel mode's **milestone 1 is built and tested** (verify against
-`list_deployments`/the commit history before assuming it's actually live --
-don't assume a push succeeded without checking, per this file's own
-commit-verification lesson further down): a mirrored, double-height version of the
-map with an AI vehicle that autonomously drives toward the player's flag
-along the real road network. This directly follows up the design discussion
-recorded lower in this file's history (the user's "could we do a mirrored
-map with a computer opponent" question) -- that discussion is now superseded
-by this actual implementation; treat this entry, not the old discussion
-notes further down, as current.
+Duel mode's **milestone 1 is built, tested, and confirmed live in
+production**: a mirrored, double-height version of the map with an AI
+vehicle that autonomously drives toward the player's flag along the real
+road network. Verified via all three commits' own diff pages
+(9460156/f2bb24f/0250b1d), `list_deployments` showing a READY production
+deployment matching the latest commit, and a live in-browser check on
+https://flag-runner-extraction.vercel.app: checking "Duel mode
+(experimental)" and starting a round shows the doubled/mirrored map, the
+player's own flag rendered at their base, and a second (AI-driven) jeep
+visibly present and moving elsewhere on the map. This directly follows up
+the design discussion recorded lower in this file's history (the user's
+"could we do a mirrored map with a computer opponent" question) -- that
+discussion is now superseded by this actual, shipped implementation; treat
+this entry, not the old discussion notes further down, as current.
 
 **What shipped (milestone 1 -- "symmetric map + dumb AI vehicle driving
 toward your flag, no combat yet"):**
