@@ -178,24 +178,28 @@ Check "Duel mode" on the vehicle-select screen to play against a computer
 opponent instead of the usual single-player run. The map becomes a mirrored,
 double-height copy of the same neighborhood (`src/mirrorMap.js`) — your half
 is unchanged, the far half is an exact mirror image with matching building
-density and road layout, so both sides are laid out fairly. The AI drives its
-own jeep from its base toward your flag, navigating the real road network the
+density and road layout, so both sides are laid out fairly. The AI drives a
+tank from its base toward your flag, navigating the real road network the
 same way the connectivity test does (`src/pathfinding.js`'s shared road
 graph + BFS route), using the same arcade vehicle physics and obstacle
 collision as the player (`src/aiDriver.js`).
 
-This is **milestone 1 of a staged build** — see `DEPLOY_NOTES.md` for the
-full plan. What's here now: a fair symmetric map and an AI that can actually
+This is a **staged build** — see `DEPLOY_NOTES.md` for the full plan.
+**Milestone 1** shipped a fair symmetric map and an AI that can actually
 navigate to your flag on its own, including recovering when it wedges itself
 against a building (reverses and retries, and after a few failed attempts on
 the same spot, gives up on that exact point and moves on rather than
-oscillating forever). What's **not** here yet: the AI can't fire and can't be
-damaged, your own flag isn't actually pickup-able by anyone yet, and there's
-no win/loss consequence tied to any of this — it's purely a "watch it drive"
-proof of the map and pathing mechanics. Combat, an actual symmetric win
-condition, and probably some driving-behavior tuning (it's intentionally
-"dumb" for now: no obstacle avoidance beyond the reverse-and-retry, no
-awareness of the player) are the next milestones.
+oscillating forever). **Milestone 2** armed it: the AI's turret independently
+swivels toward and fires on you whenever you're within range and it's
+roughly aimed — exactly like a human tank's Q/E turret traverse works
+independently of the hull — and it can now take damage and be destroyed,
+respawning after a short delay just like you do. What's **not** here yet:
+the AI can't switch vehicles (a human player can hop into the jeep at their
+own base — the AI can't), your own flag still isn't actually pickup-able by
+anyone yet, and there's no win/loss consequence tied to any of this — beating
+up the AI just respawns it, there's no way to actually win or lose a duel
+round yet. Vehicle-switching + flag-pickup + a real win condition are the
+next milestone.
 
 Map data is © OpenStreetMap contributors, licensed under the Open Database
 License (ODbL) — see `src/mapData.js`'s header comment and
@@ -253,9 +257,13 @@ buildings convert cleanly into obstacles, no building overlaps a base, the
 road network actually connects the two bases, and capture/win mechanics
 still work with real obstacles in the mix. It also covers experimental duel
 mode: the map-mirroring math, that the mirrored map's two halves are
-actually connected (not just each half individually), and that the AI
-opponent makes real, measurable progress toward the player's flag on the
-real map within a generous time budget — not just that a route exists.
+actually connected (not just each half individually), that the AI opponent
+makes real, measurable progress toward the player's flag on the real map
+within a generous time budget — not just that a route exists — and (as of
+milestone 2) that the AI's turret actually aims and fires when a target is
+in range, that its fire actually damages the player, that player fire
+actually damages and destroys the AI, and that it respawns afterward at
+full health.
 
 ## Where this could go next
 
@@ -268,10 +276,14 @@ real map within a generous time budget — not just that a route exists.
   (A smaller first pass at "more visual pizzazz" already shipped within the
   current 2D canvas renderer — see "Effects" above — without needing this.)
 - Destructible base structures instead of a fixed turret pair.
-- **Duel mode combat + real win condition** (milestone 1's symmetric map and
-  AI pathing already shipped, see "Duel mode" above): give the AI a weapon
-  and lives like the player, let either side actually pick up the other's
-  flag, and add the symmetric win/loss check that ties it all together.
+- **Duel mode vehicle-switching + flag-pickup + real win condition**
+  (milestones 1 and 2 — symmetric map, AI pathing, and AI combat — already
+  shipped, see "Duel mode" above): let the AI swap into the jeep at its own
+  base once the flag looks gettable, the same way a human player can; let
+  either side actually pick up the other's flag; and add the symmetric
+  win/loss check that ties it all together. Discussed with the user as a
+  bigger, multi-part follow-up rather than a quick patch (see
+  `DEPLOY_NOTES.md`).
 - Swap the synthesized SFX for a licensed/CC0 sample pack (e.g. Kenney.nl)
   if you want a punchier, less "retro synth" sound.
 - A visible weapon-cooldown/reload indicator in the HUD instead of just the

@@ -1,20 +1,99 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-30)
-Duel mode's **milestone 1 is built, tested, and confirmed live in
-production**: a mirrored, double-height version of the map with an AI
-vehicle that autonomously drives toward the player's flag along the real
-road network. Verified via all three commits' own diff pages
-(9460156/f2bb24f/0250b1d), `list_deployments` showing a READY production
-deployment matching the latest commit, and a live in-browser check on
-https://flag-runner-extraction.vercel.app: checking "Duel mode
-(experimental)" and starting a round shows the doubled/mirrored map, the
-player's own flag rendered at their base, and a second (AI-driven) jeep
-visibly present and moving elsewhere on the map. This directly follows up
-the design discussion recorded lower in this file's history (the user's
-"could we do a mirrored map with a computer opponent" question) -- that
-discussion is now superseded by this actual, shipped implementation; treat
-this entry, not the old discussion notes further down, as current.
+Duel mode's **milestone 2 (combat) is built and tested; deployment status
+has NOT been verified yet in this entry** -- check `list_deployments`/the
+commit history before assuming it's live, per this file's own
+commit-verification lesson further down; don't assume a push succeeded
+without checking.
+
+Before milestone 2, the user separately asked two exploratory questions
+(answered but explicitly NOT built): whether the game could support a second
+*human* player instead of AI, and whether that human could be remote (a
+friend on a different machine) rather than local split-screen. Both were
+answered narratively only -- local split-screen is a moderate lift (mostly
+duplicating the camera/HUD, since the AIDriver input-swap architecture
+already proves a second controllable vehicle is cheap), remote play is a
+materially bigger lift (needs a signaling/relay server or authoritative
+server, a deterministic-or-state-synced simulation, and latency-hiding, none
+of which exist today), and typical hosting costs for remote play land
+anywhere from free (small usage, generous free tiers) to a few dollars a
+month for a dedicated always-on relay. Nothing here was built or scoped
+further; revisit only if the user asks to actually build either.
+
+Milestone 1 (mirrored map + AI driving toward the flag, no combat) is
+already confirmed live -- see the "milestone 1" write-up further down this
+section for that verification trail (three commits' diff pages, a READY
+Vercel deployment, and a live in-browser check). This entry covers what's
+new in milestone 2.
+
+**What shipped (milestone 2 -- "give the AI a weapon, staged first, before
+vehicle-switching/flag-pickup/win-condition"):** the user asked specifically
+for "shooting" on the AI opponent, and separately asked whether the AI could
+also *switch vehicles* mid-run the way a human can (start armed to fight
+through, switch to the jeep once the flag's gettable). That fuller
+switching+flag-pickup+win-condition behavior was scoped as its own future
+milestone (it pulls in the still-missing AI flag-pickup and win-condition
+work too, not just switching) -- what's actually built here is the smaller,
+explicitly staged first step: an armed, damageable AI.
+- `src/aiDriver.js`: the AI now drives a **tank** instead of milestone 1's
+  unarmed jeep (jeeps have no weapon by design in this game -- see
+  `VEHICLE_TYPES.jeep`). New `_computeCombat(vehicle, target)` computes a
+  turret-aim `turretTurn` and a fire decision, completely independent of the
+  route-following steering logic above it -- exactly like a human tank's Q/E
+  turret traverse works independently of where the hull is driving. Only
+  does anything for a vehicle with `hasTurret`/`weapon` (a no-op for the
+  jeep, so this is safe to call unconditionally regardless of which vehicle
+  type ends up driving). Engagement range (560, close to a defensive
+  turret's own 620) gates whether it bothers aiming at all; once in range, it
+  only fires once the turret's aim error is under a small tolerance (0.12
+  rad) -- no spraying wildly off-target. `update()`'s new third parameter
+  (`target`, optional, defaults to `null`) carries the combat target; every
+  existing call site that only cares about driving (including tests) keeps
+  working unchanged.
+- `src/game.js`: `_setupDuel()` was split into itself (one-time per-round
+  setup: the player's flag target, a fresh `AIDriver`) plus a new
+  `_spawnAI()` (vehicle + health + route), so respawning after death reuses
+  the exact same spawn logic as round start instead of duplicating it. New
+  `this.aiHealth` (mirrors `this.health`) and `this.aiRespawnTimer` (mirrors
+  the player's `respawnTimer`/`"respawning"` state, reusing the same
+  `RESPAWN_DELAY`). The AI's weapon-fire block in `update()` mirrors the
+  player's own tank-cannon block almost line for line -- same `Bullet`
+  construction, same muzzle flash -- except it's non-friendly (so it damages
+  the player vehicle via the existing turret-fire collision path, not the
+  friendly-fire-vs-turrets path) and deliberately skips the player's own
+  powerup modifiers (a powerup the player picks up shouldn't buff the enemy).
+  Symmetrically, the friendly-bullet collision loop (which already checked
+  bullets against turrets) now also checks against `aiVehicle`, using the
+  exact same piercing/hitTargets bookkeeping as the turret check right above
+  it. On death: fiery explosion + camera shake (same treatment turrets and
+  the player's own vehicle get), `aiRespawnTimer` starts counting down, and
+  the AI is simply absent (no update, no draw) until it clears and
+  `_spawnAI()` rebuilds it fresh at its base with a recomputed route and full
+  health -- unlike the player, there's no lives cap on this yet (no
+  win/loss condition exists to tie a "ran out of AI lives" state to), so it
+  just keeps respawning indefinitely.
+- `src/audio.js`: one new event, `aiFireCannon`, mapped to the same
+  `_playCannonShot()` the player's own cannon uses -- same sound, kept as a
+  distinct event name (rather than reusing `playerFireCannon`) so the event
+  stream stays honest about who actually fired. Hits/destruction reuse the
+  existing generic `vehicleHit`/`vehicleDestroyed` events unchanged (the
+  sound content doesn't care whose vehicle got hit).
+- 20 new test checks: `AIDriver` combat in isolation (empty route so the hull
+  never moves -- turret sweeps onto and fires on an in-range/aimed target,
+  stays silent with no target or one out of range, a jeep AI ignores combat
+  entirely), and the whole thing wired into a real duel-mode `Game` (AI fire
+  actually damages the player, sustained player fire actually destroys and
+  respawns the AI at full health). All passing, stable across 5 consecutive
+  `node test/sim.mjs` runs.
+
+**What's explicitly still NOT here** (per the user's own staged-build
+choice -- this was deliberately scoped smaller than the
+switching/flag-pickup/win-condition idea discussed above): the AI can't
+switch vehicles, can't pick up the player's flag (still rendered but inert),
+and there's still no win/loss condition -- destroying the AI just respawns
+it, there's no consequence either direction yet. Turret placement also still
+isn't mirrored (unchanged from milestone 1).
 
 **What shipped (milestone 1 -- "symmetric map + dumb AI vehicle driving
 toward your flag, no combat yet"):**
