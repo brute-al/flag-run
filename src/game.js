@@ -5,6 +5,9 @@ import { Flag, Turret, Bullet, Powerup, POWERUP_INFO } from "./entities.js";
 import { drawVehicle } from "./vehicleArt.js";
 import { MAP_DATA } from "./mapData.js";
 import { ParticleSystem } from "./effects.js";
+import { mirrorMapData } from "./mirrorMap.js";
+import { findRoute } from "./pathfinding.js";
+import { AIDriver } from "./aiDriver.js";
 
 const RESPAWN_DELAY = 1.6;
 
@@ -38,9 +41,15 @@ export class Game {
   // neighborhood layout (see mapData.js). Pass `{ useRealMap: false }` to get
   // the original procedural rock-field arena instead (used by some tests,
   // and a reasonable fallback if no map data is available).
-  constructor(input, { useRealMap = true } = {}) {
+  // `duel`: experimental milestone-1 opponent mode (see DEPLOY_NOTES.md) --
+  // mirrors the map to twice its height (mirrorMap.js) and spawns a second,
+  // AI-driven vehicle at the mirrored base that autonomously paths toward
+  // the player's own flag along the real road network. No combat or win
+  // condition changes yet -- it's purely a driving/pathing demo so far.
+  constructor(input, { useRealMap = true, duel = false } = {}) {
     this.input = input;
     this.useRealMap = useRealMap;
+    this.duel = duel;
     this.vehicleType = "jeep";
     this.events = [];
     this.paused = false; // true while the mid-round vehicle-swap overlay is open
@@ -82,7 +91,15 @@ export class Game {
   }
 
   reset() {
-    this.arena = new Arena(this.useRealMap ? MAP_DATA : null);
+    // Duel mode plays out on a mirrored, double-height copy of the same map
+    // data (see mirrorMap.js) so the AI's half is a fair mirror image of the
+    // player's -- same building density, same road network. Arena itself
+    // doesn't need to know the difference: it always places playerBase near
+    // the top and enemyBase the same fixed distance from the bottom, so
+    // handing it the doubled dataset is all that's needed.
+    const rawMapData = this.useRealMap ? MAP_DATA : null;
+    const mapData = this.duel && rawMapData ? mirrorMapData(rawMapData) : rawMapData;
+    this.arena = new Arena(mapData);
     this.vehicle = this._spawnVehicleAtBase(this.vehicleType);
     this.camera = new Camera(this.vehicle.x, this.vehicle.y);
     this.flag = new Flag(this.arena.enemyBase.x, this.arena.enemyBase.y);
@@ -103,7 +120,31 @@ export class Game {
     this.state = "playing"; // "select" | "playing" | "won" | "lost" | "respawning"
     this.respawnTimer = 0;
     this.message = "";
+
+    if (this.duel) {
+      this._setupDuel();
+    } else {
+      this.aiVehicle = null;
+      this.playerFlag = null;
+      this.aiDriver = null;
+    }
+
     this.events.push("roundReset");
+  }
+
+  // Sets up the experimental milestone-1 AI opponent: its own vehicle at the
+  // mirrored base, the player's own flag (its target, sitting undefended at
+  // playerBase for now), and a route computed once at round start (the
+  // target doesn't move yet, so there's no need to re-path every frame).
+  _setupDuel() {
+    const base = this.arena.enemyBase; // the far/mirrored base is the AI's home
+    // Face north (into the arena, toward the player) -- the mirror image of
+    // _spawnVehicleAtBase's "spawn south of playerBase, facing south" setup.
+    this.aiVehicle = new Vehicle(base.x, base.y - 40, -Math.PI / 2, "jeep");
+    this.playerFlag = new Flag(this.arena.playerBase.x, this.arena.playerBase.y);
+    this.aiDriver = new AIDriver();
+    const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.playerFlag.x, this.playerFlag.y);
+    this.aiDriver.setRoute(route);
   }
 
   // Spreads turrets along the whole route from your base to theirs (instead
@@ -278,6 +319,19 @@ export class Game {
         const backX = this.vehicle.x - Math.cos(this.vehicle.heading) * this.vehicle.radius;
         const backY = this.vehicle.y - Math.sin(this.vehicle.heading) * this.vehicle.radius;
         this.particles.dust(backX, backY);
+      }
+    }
+
+    // Experimental duel-mode AI opponent: drives itself along the route
+    // computed once at round start (see _setupDuel) using the same physics
+    // and obstacle collision as the player. No combat/firing yet -- see
+    // aiDriver.js's header comment.
+    if (this.duel && this.aiVehicle) {
+      this.aiDriver.update(this.aiVehicle, dt);
+      this.aiVehicle.update(dt, this.aiDriver.getVector());
+      this.arena.clampToBounds(this.aiVehicle);
+      if (!this.aiVehicle.isAerial) {
+        this.arena.resolveObstacleCollisions(this.aiVehicle);
       }
     }
 
@@ -526,6 +580,9 @@ export class Game {
     if (this.state === "select") return; // HTML overlay covers the canvas
     this.arena.draw(ctx, this.camera, canvasW, canvasH);
     this.flag.draw(ctx, this.camera, canvasW, canvasH);
+    // Duel mode's second flag (the player's own, at their base -- the AI's
+    // target). Undefended and un-pickupable for now, see aiDriver.js.
+    if (this.duel && this.playerFlag) this.playerFlag.draw(ctx, this.camera, canvasW, canvasH);
     for (const pickup of this.powerupPickups) pickup.draw(ctx, this.camera, canvasW, canvasH);
     for (const turret of this.turrets) turret.draw(ctx, this.camera, canvasW, canvasH);
     for (const bullet of this.bullets) bullet.draw(ctx, this.camera, canvasW, canvasH);
@@ -533,6 +590,12 @@ export class Game {
       const s = this.camera.worldToScreen(this.vehicle.x, this.vehicle.y, canvasW, canvasH);
       const healthFrac = Math.max(0, Math.min(1, this.health / this.vehicle.maxHealth));
       drawVehicle(ctx, s.x, s.y, this.vehicle, healthFrac);
+    }
+    if (this.duel && this.aiVehicle) {
+      const s = this.camera.worldToScreen(this.aiVehicle.x, this.aiVehicle.y, canvasW, canvasH);
+      // Full health bar -- the AI can't be damaged yet (no combat this
+      // milestone), so there's nothing to reflect here.
+      drawVehicle(ctx, s.x, s.y, this.aiVehicle, 1);
     }
     // Drawn last (and regardless of state) so an explosion/dust cloud from
     // the moment before a respawn keeps rendering on top of everything else.

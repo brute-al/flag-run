@@ -15,6 +15,8 @@ const statusLineEl = document.getElementById("statusLine");
 const powerupStatusEl = document.getElementById("powerupStatus");
 const swapPromptEl = document.getElementById("swapPrompt");
 const selectScreen = document.getElementById("selectScreen");
+const duelToggle = document.getElementById("duelToggle");
+const duelToggleLabel = document.getElementById("duelToggleLabel");
 
 // Vehicle card copy comes straight from the same presets the game logic
 // uses, so the picker can never drift out of sync with actual stats.
@@ -48,6 +50,10 @@ function openSelectScreen(isSwap) {
   if (isSwap) game.paused = true;
   else game.state = "select";
   selectScreen.classList.remove("hidden");
+  // The duel toggle only makes sense when starting a whole new round --
+  // switchVehicle() (mid-round swap) leaves duel mode exactly as it already
+  // is, so hide it to avoid implying it'd change anything.
+  duelToggleLabel.classList.toggle("hidden", isSwap);
 }
 
 function closeSelectScreen() {
@@ -61,8 +67,12 @@ for (const card of document.querySelectorAll(".vehicleCard")) {
     sound.resume(); // first user gesture: unlock audio in browsers that require it
     music.resume();
     const type = card.dataset.vehicle;
-    if (swapMode) game.switchVehicle(type);
-    else game.chooseVehicle(type);
+    if (swapMode) {
+      game.switchVehicle(type);
+    } else {
+      game.duel = duelToggle.checked;
+      game.chooseVehicle(type);
+    }
     closeSelectScreen();
   });
 }
