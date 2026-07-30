@@ -88,8 +88,13 @@ pressure.
 7. Fallback: if Claude in Chrome isn't connected/available, use the old
    `deploy_to_vercel` path above (minify + inline all 15 files).
 
-## Known limitation / open task — RESOLVED 2026-07-30
-Building fidelity was previously capped (169, then 393 of 786) purely to fit
-`deploy_to_vercel`'s output budget. That constraint no longer applies via the
-git pipeline — restoring the full 786-building `mapData.js` is now just a
-normal `file_upload` push, no special budget planning needed.
+## Building density — DECIDED 2026-07-30, do not "fix" this
+Building fidelity was originally capped (169, then 393 of 786) to fit
+`deploy_to_vercel`'s output budget. That technical constraint is gone now
+that the git pipeline is set up (restoring the full 786 would be a trivial
+`file_upload` push, no budget planning needed).
+
+However: the user was asked directly and said the 393-building density is
+**more fun** than the full 786 and wants it kept as the standard. This is a
+deliberate gameplay/design choice, not a limitation. Do not restore full
+building density unless the user explicitly asks for it again.
