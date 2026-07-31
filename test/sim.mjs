@@ -24,11 +24,18 @@ function check(label, cond) {
   return cond;
 }
 
+// `aimAngle` (null by default -- "no aim yet", matching a real Input/
+// GamepadInput before the mouse has moved or the right stick has been
+// touched) stands in for real mouse/right-stick math: tests just set it
+// directly rather than simulating actual screen coordinates. `getAim()`
+// ignores the `ctx` a real Input.getAim(ctx) needs (camera/canvas info),
+// since this fake already has the angle it should report.
 function makeInput() {
-  const state = { throttle: 0, turn: 0, fire: false, fire2: false, turretTurn: 0 };
+  const state = { throttle: 0, turn: 0, fire: false, fire2: false, aimAngle: null };
   return {
     set: (v) => Object.assign(state, v),
-    getVector: () => ({ throttle: state.throttle, turn: state.turn, turretTurn: state.turretTurn }),
+    getVector: () => ({ throttle: state.throttle, turn: state.turn }),
+    getAim: () => ({ active: state.fire, angle: state.aimAngle }),
     isFiring: () => state.fire,
     isFiring2: () => state.fire2,
   };
@@ -108,7 +115,7 @@ for (const type of ["tank", "heli"]) {
     game.vehicle.x = turret.x;
     game.vehicle.y = turret.y - 150;
     game.vehicle.heading = Math.PI / 2;
-    input.set({ throttle: 0, turn: 0, fire: true });
+    input.set({ throttle: 0, turn: 0, fire: true, aimAngle: Math.PI / 2 }); // aiming toward the turret
     game.update(dt);
     for (const e of game.drainEvents()) {
       if (e === "turretHit") sawTurretHit = true;
@@ -586,14 +593,16 @@ console.log("\n=== Helicopter missile weapon ===");
 
   let sawTurretHit = false;
   for (let i = 0; i < 60 * 3 && !sawTurretHit; i++) {
-    input.set({ throttle: 0, turn: 0, fire: false, fire2: true });
+    // Twin-stick: firing is aim-triggered (fire: true), and holding F
+    // (fire2) swaps that autofire from the chaingun to the missile.
+    input.set({ throttle: 0, turn: 0, fire: true, fire2: true, aimAngle: Math.PI / 2 });
     game.update(dt);
     for (const e of game.drainEvents()) {
       if (e === "turretHit") sawTurretHit = true;
     }
   }
   console.log("[missile vs turret]");
-  check("holding the missile trigger (F) hits a turret", sawTurretHit);
+  check("aiming while holding the missile modifier (F) hits a turret", sawTurretHit);
 
   // The actual point of the missile: it should sail over a building instead
   // of colliding with it, unlike the regular chaingun round.
@@ -614,8 +623,12 @@ console.log("\n=== Helicopter missile weapon ===");
   }
 }
 
-// --- 11. Tank turret glued to the hull, traversed with Q/E -----------------
-console.log("\n=== Tank turret follows the hull, traversable independently ===");
+// --- 11. Tank turret twin-stick aim, independent of the hull ---------------
+// User-requested rework: aiming is now twin-stick (mouse cursor, or a
+// controller's right stick) instead of the old Q/E-relative traverse. The
+// turret tracks the aim angle directly and completely independent of the
+// hull -- there's no "offset from the hull" concept left to preserve.
+console.log("\n=== Tank turret tracks the aim input (twin-stick), independent of the hull ===");
 {
   const input = makeInput();
   const game = new Game(input, { useRealMap: false });
@@ -627,48 +640,91 @@ console.log("\n=== Tank turret follows the hull, traversable independently ===")
   check("jeep has no turret", !new Vehicle(0, 0, 0, "jeep").hasTurret);
   check("heli has no turret", !new Vehicle(0, 0, 0, "heli").hasTurret);
 
-  // Q/E (or a gamepad's shoulder buttons, both feeding the same `turretTurn`
-  // input) traverse the turret WITHOUT touching the hull heading.
   const startHeading = game.vehicle.heading;
-  input.set({ throttle: 0, turn: 0, turretTurn: 1 });
+  input.set({ throttle: 0, turn: 0, aimAngle: Math.PI / 2 });
   for (let i = 0; i < 30; i++) game.update(dt);
-  console.log("[traversing the turret]");
-  check("turning the turret changed turretAngle", game.vehicle.turretAngle !== startHeading);
-  check("turning the turret left the hull heading untouched", game.vehicle.heading === startHeading);
+  console.log("[turret tracks the aim angle]");
+  check("the turret swiveled toward the aim angle", Math.abs(game.vehicle.turretAngle - Math.PI / 2) < 0.05);
+  check("aiming the turret left the hull heading untouched", game.vehicle.heading === startHeading);
 
-  // But the turret is bolted to the hull: once the hull itself turns, the
-  // turret should turn right along with it, preserving whatever offset the
-  // player dialed in with Q/E -- like a real turret ring.
-  const offsetAfterTraverse = game.vehicle.turretAngle - game.vehicle.heading;
-  input.set({ throttle: 1, turn: 1, turretTurn: 0 });
+  // Driving/turning the hull shouldn't drag the turret along with it at all
+  // anymore -- unlike the old Q/E-relative model, it just keeps tracking the
+  // same absolute aim angle no matter which way the hull now points.
+  input.set({ throttle: 1, turn: 1, aimAngle: Math.PI / 2 });
   for (let i = 0; i < 30; i++) game.update(dt);
-  console.log("[turret glued to a turning hull]");
+  console.log("[turret ignores the turning hull]");
   check("driving/turning the hull did change the hull heading", game.vehicle.heading !== startHeading);
-  check("the turret angle changed along with the turning hull", game.vehicle.turretAngle !== offsetAfterTraverse + startHeading);
-  const offsetNow = game.vehicle.turretAngle - game.vehicle.heading;
   check(
-    "the turret's offset from the hull was preserved while the hull turned",
-    Math.abs(offsetNow - offsetAfterTraverse) < 1e-6
+    "the turret kept tracking the same aim angle regardless of the hull's new heading",
+    Math.abs(game.vehicle.turretAngle - Math.PI / 2) < 0.05
   );
 
-  // The cannon should still fire along the turret's angle, not the hull's --
-  // point the hull one way and the turret the opposite way, then confirm
-  // the shot travels along the turret's direction.
+  // The cannon should still fire along the aim angle, not the hull's --
+  // point the hull one way and aim the opposite way, then confirm the shot
+  // travels along the aim direction.
   game.vehicle.x = 0;
   game.vehicle.y = 0;
   game.vehicle.vx = 0;
   game.vehicle.vy = 0;
   game.vehicle.heading = Math.PI; // hull facing "west" (-x)
-  game.vehicle.turretAngle = 0; // turret facing "east" (+x), independent of the hull
   game.vehicle.weapon.cooldown = 0;
-  input.set({ throttle: 0, turn: 0, turretTurn: 0, fire: true });
+  input.set({ throttle: 0, turn: 0, aimAngle: 0, fire: true }); // aiming "east" (+x)
   game.update(dt);
   const cannonBullet = game.bullets.find((b) => b.friendly);
-  console.log("[cannon fires along the turret, not the hull]");
+  console.log("[cannon fires along the aim angle, not the hull]");
   check("a cannon round was fired", !!cannonBullet);
   if (cannonBullet) {
-    check("it travels along the turret's angle (+x), not the hull's (-x)", cannonBullet.vx > 0);
+    check("it travels along the aim angle (+x), not the hull's (-x)", cannonBullet.vx > 0);
   }
+
+  console.log("[autofire needs both an aim angle and the fire trigger held]");
+  game.vehicle.weapon.cooldown = 0;
+  input.set({ throttle: 0, turn: 0, aimAngle: 0, fire: false });
+  const bulletCountBefore = game.bullets.length;
+  game.update(dt);
+  check("aiming without holding the fire trigger does not shoot", game.bullets.length === bulletCountBefore);
+}
+
+// --- 11b. Heli twin-stick aim + held-missile weapon swap --------------------
+// Same twin-stick model as the tank's turret above, but for the heli: its
+// nose (and fire direction) tracks the aim angle independently of however
+// it's actually flying, and the same fire-triggered autofire stream swaps
+// from chaingun to missile the instant fire2 (F, or a controller's B/left
+// trigger) is also held -- no separate trigger of its own anymore.
+console.log("\n=== Heli twin-stick aim + held-missile weapon swap ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { useRealMap: false });
+  game.chooseVehicle("heli");
+  game.vehicle.x = 0;
+  game.vehicle.y = 0;
+  game.vehicle.vx = 0;
+  game.vehicle.vy = 0;
+  game.vehicle.heading = Math.PI; // nose starts facing "west"
+
+  console.log("[nose tracks the aim angle, independent of translation]");
+  input.set({ throttle: 1, turn: 0, aimAngle: 0, fire: false }); // thrusting along the nose while aiming "east"
+  for (let i = 0; i < 60; i++) game.update(dt);
+  check("the nose swiveled toward the aim angle regardless of movement", Math.abs(game.vehicle.heading) < 0.05);
+  check("the heli actually moved while aiming a totally different direction", Math.hypot(game.vehicle.vx, game.vehicle.vy) > 0);
+
+  console.log("[aiming autofires the chaingun by default]");
+  game.vehicle.x = 0;
+  game.vehicle.y = 0;
+  game.vehicle.weapon.cooldown = 0;
+  input.set({ throttle: 0, turn: 0, aimAngle: 0, fire: true, fire2: false });
+  game.update(dt);
+  const chaingunRound = game.bullets.find((b) => b.friendly);
+  check("a chaingun round was fired", !!chaingunRound && chaingunRound.damage === game.vehicle.weapon.damage);
+
+  console.log("[holding F swaps the same autofire to the missile instead]");
+  game.bullets = [];
+  game.vehicle.weapon.cooldown = 0;
+  game.vehicle.weapon2.cooldown = 0;
+  input.set({ throttle: 0, turn: 0, aimAngle: 0, fire: true, fire2: true });
+  game.update(dt);
+  check("no chaingun round was fired while F is held", !game.bullets.some((b) => b.damage === game.vehicle.weapon.damage));
+  check("a missile was fired instead", game.bullets.some((b) => b.damage === game.vehicle.weapon2.damage));
 }
 
 // --- 12. Gamepad input merges with keyboard without needing one connected -
@@ -679,16 +735,23 @@ console.log("\n=== Gamepad input (no controller connected) ===");
   const pad = new GamepadInput();
   const vec = pad.getVector();
   console.log("[gamepad with nothing connected]");
-  check("produces a neutral vector when no gamepad is connected", vec.throttle === 0 && vec.turn === 0 && vec.turretTurn === 0);
+  check("produces a neutral vector when no gamepad is connected", vec.throttle === 0 && vec.turn === 0);
+  const padAim = pad.getAim();
+  check("getAim reports nothing with no gamepad connected", padAim.active === false && padAim.angle === null);
   check("isFiring/isFiring2 are false with nothing connected", !pad.isFiring() && !pad.isFiring2());
 
   const kb = makeInput();
   const combined = new CombinedInput(kb, pad);
-  kb.set({ throttle: 1, turn: -1, turretTurn: 1, fire: true, fire2: false });
+  kb.set({ throttle: 1, turn: -1, fire: true, fire2: false, aimAngle: Math.PI / 3 });
   const merged = combined.getVector();
   console.log("[combined input with keyboard only]");
-  check("keyboard-only input passes through the combiner unchanged", merged.throttle === 1 && merged.turn === -1 && merged.turretTurn === 1);
+  check("keyboard-only input passes through the combiner unchanged", merged.throttle === 1 && merged.turn === -1);
   check("isFiring reflects the keyboard when the gamepad is idle", combined.isFiring() === true && combined.isFiring2() === false);
+
+  console.log("[combined aim falls back to the keyboard/mouse when the gamepad has never been touched]");
+  const combinedAim = combined.getAim({ vehicleX: 0, vehicleY: 0, cameraX: 0, cameraY: 0, canvasW: 800, canvasH: 600 });
+  check("aim angle comes from the keyboard/mouse", combinedAim.angle === Math.PI / 3);
+  check("aim is active (mouse held)", combinedAim.active === true);
 }
 
 // --- 13. Helicopter: stick strafes, rotate input spins it in place --------
@@ -1114,7 +1177,7 @@ console.log("\n=== Game wires particles/shake into actual events ===");
 
   console.log("[firing the cannon spawns a muzzle flash]");
   game.vehicle.weapon.cooldown = 0;
-  input.set({ throttle: 0, turn: 0, fire: true });
+  input.set({ throttle: 0, turn: 0, fire: true, aimAngle: 0 });
   const countBeforeFire = game.particles.particles.length;
   game.update(dt);
   check("firing added at least one particle (the muzzle flash)", game.particles.particles.length > countBeforeFire);
@@ -1354,7 +1417,7 @@ console.log("\n=== Duel mode: AI vs player combat, wired into a real Game ===");
 
   console.log("[player fire can damage and destroy the AI opponent]");
   game.aiHealth = 30; // near-dead, so a single hit finishes it off
-  input.set({ throttle: 0, turn: 0, fire: true });
+  input.set({ throttle: 0, turn: 0, fire: true, aimAngle: Math.PI }); // aiming west, toward the AI at the origin
   let sawAiDestroyed = false;
   for (let i = 0; i < 60 * 3 && !sawAiDestroyed; i++) {
     game.update(dt);
