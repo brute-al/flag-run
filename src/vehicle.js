@@ -54,10 +54,13 @@ export const VEHICLE_TYPES = {
     // it's a poor substitute for the tank's cannon.
     ramDamage: 5,
     // Unlike the armored tank, the jeep isn't built to take a hit: slamming
-    // into a building at speed costs the jeep itself mild/moderate health
-    // too (see the ram-handling block in game.js), on top of whatever damage
-    // it deals to the building. "Precious and important, but very weak."
-    collisionDamage: 10,
+    // into a building at speed costs the jeep itself some health too (see
+    // the ram-handling block in game.js), on top of whatever damage it deals
+    // to the building. "Precious and important, but very weak." Halved from
+    // its original 10 after user feedback that it felt too punishing --
+    // still a real cost (a jeep only has 100 health), just not a run-ending
+    // one from a couple of bumps.
+    collisionDamage: 5,
   },
   tank: {
     label: "Tank",
@@ -97,7 +100,7 @@ export const VEHICLE_TYPES = {
   heli: {
     label: "Helicopter",
     description:
-      "Fast, fragile, twin-stick aim. WASD moves it -- forward/back along the nose, left/right strafes sideways -- while the nose independently tracks your mouse cursor (or a controller's right stick) and autofires the chaingun, fully decoupled from whichever way you're actually flying. Hold F to swap that autofire to longer-range missiles that arc over rooftops. 2 lives.",
+      "Fast, fragile, twin-stick aim and hovercraft movement like the tank and jeep: WASD slides it in any direction directly, no need to turn first, while the nose independently tracks your mouse cursor (or a controller's right stick) and autofires the chaingun. Floatier and looser than the tank -- expect more drift. Hold F to swap that autofire to longer-range missiles that arc over rooftops. 2 lives.",
     accel: 360,
     reverseAccel: 220,
     maxSpeed: 380,
@@ -215,7 +218,10 @@ export class Vehicle {
       // Hovercraft-style movement (see the thrust branch below): the hull
       // isn't turned by player input at all here -- it's purely cosmetic,
       // set further down (after velocity updates) to passively track
-      // whichever direction the vehicle is actually traveling.
+      // whichever direction the vehicle is actually traveling. Only ever
+      // reached for a ground vehicle (tank/jeep) -- the heli is aerial, so
+      // it always hits the branch above instead, keeping its nose on
+      // aim-angle duty regardless of `omni`.
     } else {
       // Turning authority tapers off a bit at high speed (harder to snap-turn
       // when driving along), but never drops to zero so drifting stays controllable.
@@ -230,51 +236,24 @@ export class Vehicle {
     const maxFwd = this.maxSpeed * this.speedMultiplier;
     const maxRev = this.maxReverseSpeed * this.speedMultiplier;
 
-    if (this.isAerial) {
-      // The stick maps straight onto the airframe's own forward/right axes:
-      // throttle thrusts along the nose, and what used to be the "turn" axis
-      // now thrusts sideways (strafe) instead of yawing. Pushing the stick
-      // left/right moves the helicopter left/right relative to wherever it's
-      // currently facing, fully independent of the dedicated rotate input
-      // above -- so you can hover, spin to face any direction, then fly off
-      // any direction relative to that facing (including straight sideways).
-      if (input.throttle > 0) {
-        this.vx += forward.x * this.accel * input.throttle * dt;
-        this.vy += forward.y * this.accel * input.throttle * dt;
-      } else if (input.throttle < 0) {
-        this.vx += forward.x * this.reverseAccel * input.throttle * dt;
-        this.vy += forward.y * this.reverseAccel * input.throttle * dt;
-      }
-      if (input.turn) {
-        this.vx += right.x * this.accel * input.turn * dt;
-        this.vy += right.y * this.accel * input.turn * dt;
-      }
-
-      // Cap overall speed regardless of travel direction (there's no
-      // separate "forward vs. lateral" limit once movement is omnidirectional).
-      const curSpeed = Math.hypot(this.vx, this.vy);
-      if (curSpeed > maxFwd) {
-        const scale = maxFwd / curSpeed;
-        this.vx *= scale;
-        this.vy *= scale;
-      }
-
-      // Gentle drag brings it back toward a stop when the stick is
-      // released -- there's no "wheels on the ground" friction model to
-      // lean on here, but a hovering aircraft should still settle down.
-      this.vx *= Math.max(0, 1 - this.rollingFriction * dt);
-      this.vy *= Math.max(0, 1 - this.rollingFriction * dt);
-    } else if (input.omni) {
-      // Hovercraft-style movement (currently just the player's own tank --
-      // see the `omni` flag Game passes in game.js): the stick's raw x/y
-      // (`turn` = horizontal, `-throttle` = vertical, the same convention
-      // the keyboard/gamepad already produce) IS the movement direction,
-      // completely independent of the hull's facing -- no need to turn the
-      // vehicle body to change travel direction, matching the same "aim one
-      // way, move another" twin-stick feel as the turret's own independent
-      // aim. The duel-mode AI opponent's tank still drives the old
-      // turn-to-face way (see the `else` branch below) since aiDriver.js's
-      // pursuit steering assumes that model -- it never sets `omni`.
+    if (input.omni) {
+      // Hovercraft-style movement -- the player's own tank, jeep, and (as of
+      // user feedback that nose-relative flight "felt weird" once the ground
+      // vehicles went hovercraft) helicopter all drive this way now: the
+      // stick's raw x/y (`turn` = horizontal, `-throttle` = vertical, the
+      // same convention the keyboard/gamepad already produce) IS the
+      // movement direction, completely independent of the vehicle's facing
+      // -- no need to turn/reorient to change travel direction, matching the
+      // same "aim one way, move another" twin-stick feel as the tank
+      // turret's (and the heli's own nose's) independent aim. Checked ahead
+      // of `isAerial` below so the heli can opt into this exact same
+      // movement model while keeping its own aim-angle-driven heading
+      // (see the heading section above, still `isAerial`-first and
+      // untouched by this) -- the nose keeps tracking the mouse/right stick
+      // regardless of which way the stick is actually pushing it. The
+      // duel-mode AI opponent's tank still drives the old turn-to-face way
+      // (see the plain `else` branch below) since aiDriver.js's pursuit
+      // steering assumes that model -- it never sets `omni`.
       let moveX = input.turn || 0;
       let moveY = -(input.throttle || 0);
       const inputMag = Math.hypot(moveX, moveY);
@@ -318,6 +297,40 @@ export class Vehicle {
         this.vx *= scale;
         this.vy *= scale;
       }
+      this.vx *= Math.max(0, 1 - this.rollingFriction * dt);
+      this.vy *= Math.max(0, 1 - this.rollingFriction * dt);
+    } else if (this.isAerial) {
+      // Legacy nose-relative flight -- no current caller drives a heli this
+      // way anymore (game.js sets `omni: true` for it now, see above), but
+      // kept as a fallback for any direct caller that still passes plain
+      // throttle/turn without `omni`, same as the ground vehicles' own
+      // legacy `else` branch below. Throttle thrusts along the nose, and
+      // turn thrusts sideways (strafe) instead of yawing -- fully
+      // independent of the dedicated aim-angle heading above.
+      if (input.throttle > 0) {
+        this.vx += forward.x * this.accel * input.throttle * dt;
+        this.vy += forward.y * this.accel * input.throttle * dt;
+      } else if (input.throttle < 0) {
+        this.vx += forward.x * this.reverseAccel * input.throttle * dt;
+        this.vy += forward.y * this.reverseAccel * input.throttle * dt;
+      }
+      if (input.turn) {
+        this.vx += right.x * this.accel * input.turn * dt;
+        this.vy += right.y * this.accel * input.turn * dt;
+      }
+
+      // Cap overall speed regardless of travel direction (there's no
+      // separate "forward vs. lateral" limit once movement is omnidirectional).
+      const curSpeed = Math.hypot(this.vx, this.vy);
+      if (curSpeed > maxFwd) {
+        const scale = maxFwd / curSpeed;
+        this.vx *= scale;
+        this.vy *= scale;
+      }
+
+      // Gentle drag brings it back toward a stop when the stick is
+      // released -- there's no "wheels on the ground" friction model to
+      // lean on here, but a hovering aircraft should still settle down.
       this.vx *= Math.max(0, 1 - this.rollingFriction * dt);
       this.vy *= Math.max(0, 1 - this.rollingFriction * dt);
     } else {

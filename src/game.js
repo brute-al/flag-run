@@ -433,17 +433,23 @@ export class Game {
       canvasH,
     });
     const rawInput = this.input.getVector();
-    // Hovercraft-style movement (see Vehicle.update's `omni` handling): both
-    // ground vehicles the player can actually drive (tank, jeep) use it now
-    // -- the jeep's old car-style steering started feeling like a holdover
-    // from before twin-stick aim once the tank switched over. The duel-mode
-    // AI opponent's tank (driven separately, below, via aiDriver.getVector())
-    // keeps the old turn-to-face driving aiDriver.js's pursuit steering
-    // assumes, and it never drives a jeep, so neither case is touched here.
+    // Hovercraft-style movement (see Vehicle.update's `omni` handling): all
+    // three player-driveable vehicles use it now -- the jeep's old car-style
+    // steering started feeling like a holdover from before twin-stick aim
+    // once the tank switched over, and the heli's own nose-relative flight
+    // started feeling the same way once the ground vehicles went hovercraft
+    // (per user feedback: "rotating and going is starting to feel weird").
+    // For the heli, `omni` only changes how the stick *moves* it -- its nose
+    // keeps independently tracking `aimAngle` exactly as before (see
+    // Vehicle.update's `isAerial`-first heading branch), so twin-stick aim
+    // is untouched; only translation changed. The duel-mode AI opponent's
+    // tank (driven separately, below, via aiDriver.getVector()) keeps the
+    // old turn-to-face driving aiDriver.js's pursuit steering assumes, and
+    // it never drives a heli, so that case is untouched here.
     this.vehicle.update(dt, {
       ...rawInput,
       aimAngle: aim.angle,
-      omni: this.vehicle.type === "tank" || this.vehicle.type === "jeep",
+      omni: this.vehicle.type === "tank" || this.vehicle.type === "jeep" || this.vehicle.type === "heli",
     });
     this.arena.clampToBounds(this.vehicle);
     // Aerial vehicles (helicopter) fly over ground obstacles.
