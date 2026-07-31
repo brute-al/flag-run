@@ -4,13 +4,12 @@
 Duel mode's **milestone 2 (combat) is confirmed live**: four commits
 (c1aa5e4/20d11e5/e7433fe/36da00e) all verified via their own diff pages, a
 READY Vercel deployment matching the last of them, and a live in-browser
-check with no console errors on the actual game page. On top of that, a
-**follow-up the user asked for directly after seeing it work is also built,
-tested, and deployment-status-NOT-yet-verified-in-this-entry**: territorial
-turrets (see "What shipped (territorial turrets)" below) -- check
-`list_deployments`/the commit history before assuming that latest piece is
-live, per this file's own commit-verification lesson further down; don't
-assume a push succeeded without checking.
+check with no console errors on the actual game page. On top of that, the
+**territorial-turrets follow-up (see "What shipped (territorial turrets)"
+below) is also confirmed live**: three commits (f573499/bd62794/c612af5)
+all verified via their own diff pages, a READY Vercel deployment
+(dpl_5LbtoDEMTqGDCuRmuy7WnHphFUKn) matching the last of them, and a live
+in-browser check (duel mode + tank, round started, no console errors).
 
 Before milestone 2, the user separately asked two exploratory questions
 (answered but explicitly NOT built): whether the game could support a second
