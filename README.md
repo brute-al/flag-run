@@ -20,18 +20,17 @@ Then open `http://localhost:8000` in a browser.
 ## Controls
 
 - Pick a vehicle on the start screen (click a card)
-- `W`/`↑` `S`/`↓` — throttle forward / reverse (heli only); on the **tank**
-  and **jeep**, see hovercraft movement below instead
-- `A`/`←` `D`/`→` — turn left / right (heli only); on the **tank** and
-  **jeep**, see hovercraft movement below instead
-- **Hovercraft movement** (tank + jeep): WASD/arrows (or the left stick) set
-  an absolute direction to move in directly — no need to turn first, it just
-  slides that way immediately, forward/back/strafing all included. On the
-  tank, the hull is purely cosmetic and just visually settles to face
-  wherever it's actually traveling, independent of the turret's own aim. The
-  jeep has no turret to keep independent, so it's even simpler there — the
-  whole vehicle just slides and faces its travel direction. Only the heli
-  still flies the older way (see its own strafing note below).
+- **Hovercraft movement** (all three vehicles): WASD/arrows (or the left
+  stick) set an absolute direction to move in directly — no need to turn
+  first, it just slides that way immediately, forward/back/strafing all
+  included. On the tank, the hull is purely cosmetic and just visually
+  settles to face wherever it's actually traveling, independent of the
+  turret's own aim. The jeep has no turret to keep independent, so it's even
+  simpler there — the whole vehicle just slides and faces its travel
+  direction. The heli uses the same movement model but noticeably floatier
+  and looser (more drift, less bite) — its nose is a separate concern, kept
+  independently aimed via twin-stick (see below) regardless of which way
+  the stick is actually pushing it.
 - **Twin-stick aim** (tank/heli only — the jeep is unarmed): your turret/heli
   nose tracks your mouse cursor independently of however you're driving, and
   autofires whenever you're aiming somewhere and holding the left mouse
@@ -58,9 +57,9 @@ whichever type you've still got left, so the tank/heli can keep clearing the
 way even after the jeeps are gone (though without a jeep left, the flag can't
 actually be picked up again until the round resets).
 
-- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Very fragile: on top of taking damage from turret/gunfire like anything else, ramming a building bruises the jeep itself, not just the building. Moves hovercraft-style (see Controls above).
+- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Fragile: on top of taking damage from turret/gunfire like anything else, ramming a building dings the jeep itself a little, not just the building. Moves hovercraft-style (see Controls above).
 - **Tank** — slow, armored, biggest health pool, slow heavy cannon. 2 lives. Armored enough that ramming a building costs it nothing extra. Moves hovercraft-style (see Controls above): WASD sets an absolute travel direction directly, independent of the turret's own aim.
-- **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. 2 lives.
+- **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. 2 lives. Moves hovercraft-style like the tank/jeep, just noticeably looser and driftier (see Controls above), with its nose independently aimed via twin-stick regardless of travel direction.
 
 Each has its own stats (top speed, grip, turn rate, health, weapon) defined
 in `src/vehicle.js`, and its own silhouette in `src/vehicleArt.js`.
@@ -72,9 +71,10 @@ harder than the jeep (it can flat-out bulldoze a weak building by ramming
 alone), while the jeep's ramming is more of a nudge, not a real substitute
 for the tank's cannon. Unlike the tank, the jeep isn't armored for this: every
 time it rams a building, the impact costs the jeep some of its own health too
-(mild/moderate, not lethal in one hit) — "precious and important, but very
-weak." The helicopter never rams anything: it's aerial and flies straight
-over ground obstacles instead of colliding with them.
+— a real cost, but a light one (halved from its original value after it felt
+too punishing) — "precious and important, but very weak." The helicopter
+never rams anything: it's aerial and flies straight over ground obstacles
+instead of colliding with them.
 
 **Powerups.** A handful of destructible buildings secretly hide a pickup —
 and unlike the rest of the neighborhood, a seeded building is unmistakable:

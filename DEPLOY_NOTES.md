@@ -1,5 +1,75 @@
 # Deploy notes (read this before redeploying)
 
+## NEXT UP — where we left off (2026-07-31, two small feel tweaks)
+**Implementation + tests done, not yet committed/deployed.** User feedback
+after trying the oblique camera pass (see the entry directly below): the
+jeep's building-ram self-damage felt too punishing, and the heli's
+nose-relative flight ("rotating and going") started feeling weird/dated now
+that the tank and jeep both drive hovercraft-style. Both are small, targeted
+changes -- no new mechanics, just tuning + reusing an existing model.
+
+**What shipped (jeep ram damage halved):** `vehicle.js`'s jeep preset,
+`collisionDamage: 10` → `5`. This is the *only* number that needed to
+change -- everything else (the ram-handling block in `game.js`, the
+`vehicleHit` event, the existing tests, which only assert `> 0` /
+relative comparisons, not the exact value) was already generic over
+whatever this constant is. Still a real cost (a jeep only has 100 health),
+just not run-ending from a couple of bumps anymore.
+
+**What shipped (heli movement → hovercraft, matching tank/jeep):** the
+heli now uses the exact same omni movement model the tank and jeep already
+had (`game.js`'s `omni: type === "tank" || type === "jeep" || type ===
+"heli"`) instead of its old nose-relative "throttle along the nose, turn
+strafes sideways" scheme. The key subtlety: the heli's nose is *also* its
+twin-stick aim direction (it has no separate turret sprite to keep
+independent, unlike the tank), so simply swapping its movement model risked
+also changing what it aims at. It doesn't -- `Vehicle.update()`'s heading
+section was already checking `isAerial` before `omni` (aim-angle tracking
+takes priority), so that part needed zero changes; only the *thrust*
+section's branch order flipped (`omni` now checked before `isAerial`, with
+the old nose-relative thrust code kept intact as an `isAerial`-only
+fallback branch for any caller that doesn't pass `omni`). Net effect: WASD
+now sets an absolute travel direction directly for the heli too, exactly
+like the tank/jeep, while the nose keeps independently tracking the
+mouse/right-stick regardless of which way the stick is actually pushing it
+-- twin-stick aim is completely untouched.
+
+**Why it's floatier than the tank without any new tuning**: the heli
+already had much lower `grip` (1.4 vs. the tank's 5.5) and `rollingFriction`
+(0.35 vs. 1.1) than the tank, from its original preset. Since the omni
+movement math derives its "how much drift bleeds off" and "how fast it
+settles when you let go" behavior directly from those same two stats, running
+the heli through the identical omni code the tank uses automatically comes
+out looser/driftier -- no new floatiness constant needed, the existing
+preset numbers already implied it once both vehicles shared one movement
+model instead of two different ones.
+
+**Test updates**: one test needed to flip its own assertion --
+`test/sim.mjs`'s "omni movement is still opt-in" test previously *proved*
+the heli kept flying the old way; now that this is the whole point of the
+change, it was rewritten to prove the opposite (absolute-direction movement
++ independent nose), renamed accordingly. The lower-level "Helicopter: stick
+strafes, rotate input spins it" section (calls `Vehicle.update()` directly
+with plain throttle/turn, no `omni`) needed no logic changes -- it now
+exercises what the header comment renamed to "legacy nose-relative flight,
+fallback path" — still real, still tested, just no longer what a live player
+actually experiences. Reran `node test/sim.mjs` 3x after the changes --
+stable "ALL PASS" each time.
+
+**Docs**: `vehicle.js`'s heli description, `index.html`'s help text, and
+README's Controls/Vehicles sections all updated to describe hovercraft
+movement as "all three vehicles" rather than singling out tank+jeep, with a
+note that the heli's version is looser/driftier.
+
+**Not yet done**: commit to GitHub, verify Vercel deployment, live-verify
+(both changes are feel/physics tuning that's hard to fully confirm without
+actually holding a key down in a real browser session -- same limitation
+noted for every prior movement-feel change this session -- so `test/sim.mjs`
+is the authoritative check, same precedent as the tank/jeep hovercraft work
+below).
+
+---
+
 ## NEXT UP — where we left off (2026-07-31, oblique/pitched camera pass)
 **Implementation + tests done, not yet committed/deployed.** This is the
 "isometric view" the user asked about earlier in the session, now
