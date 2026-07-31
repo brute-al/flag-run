@@ -796,18 +796,31 @@ console.log("\n=== Tank hovercraft (omnidirectional) movement ===");
     jeepGame.vehicle.vx > 0
   );
 
-  console.log("[omni movement is still opt-in -- the heli keeps its own already-decoupled flight controls]");
+  // Follow-up user feedback: once the ground vehicles went hovercraft, the
+  // heli's own nose-relative flight ("rotating and going") started feeling
+  // like a similar holdover, so it got the same omni treatment as the tank
+  // and jeep (see game.js's `omni: ... || type === "heli"`). Unlike the
+  // ground vehicles, the heli still has independent twin-stick aim on top --
+  // the nose keeps tracking `aimAngle` regardless of which way the stick
+  // actually moves it, so this is "the tank's movement model" plus "the
+  // heli's own already-existing independent-aim model", not a replacement
+  // for either.
+  console.log("[the heli also drives hovercraft-style now, matching the tank/jeep -- movement is absolute, but its nose still aims independently]");
   const heliInput = makeInput();
   const heliGame = new Game(heliInput, { useRealMap: false });
   heliGame.chooseVehicle("heli");
-  heliGame.vehicle.heading = Math.PI;
+  heliGame.vehicle.heading = Math.PI; // nose facing "west" -- purely a twin-stick aim fact, unrelated to movement now
   heliGame.vehicle.vx = 0;
   heliGame.vehicle.vy = 0;
-  heliInput.set({ throttle: 0, turn: 1, aimAngle: null });
+  heliInput.set({ throttle: 0, turn: 1, aimAngle: null }); // stick pushed "east"
   heliGame.update(dt);
   check(
-    "the heli still strafes relative to its own nose (right.x/right.y at heading PI), not an absolute direction",
-    Math.abs(heliGame.vehicle.vx) < 1 && heliGame.vehicle.vy < 0
+    "the heli accelerated east (+x) despite its nose facing west, just like the tank/jeep",
+    heliGame.vehicle.vx > 0
+  );
+  check(
+    "the heli's nose didn't get dragged toward the travel direction -- twin-stick aim stays independent",
+    heliGame.vehicle.heading === Math.PI
   );
 }
 
@@ -862,12 +875,18 @@ console.log("\n=== Gamepad input (no controller connected) ===");
   );
 }
 
-// --- 13. Helicopter: stick strafes, rotate input spins it in place --------
-// The heli's yaw reuses the same "independent, no-momentum-coupling" rotate
-// input as the tank's turret traverse (Q/E, or a controller's shoulder
-// buttons) -- fully decoupled from translation. Pushing the stick left/right
-// now strafes the airframe relative to its own nose instead of yawing it.
-console.log("\n=== Helicopter: stick strafes, rotate input spins it ===");
+// --- 13. Helicopter: legacy nose-relative flight (fallback path) -----------
+// A real player no longer drives the heli this way -- game.js now sets
+// `omni: true` for it (see section 11c above), so live gameplay moves it in
+// an absolute stick direction, same as the tank/jeep. This section instead
+// calls Vehicle.update() directly with plain throttle/turn and no `omni`,
+// exercising the older nose-relative model (throttle along the nose, turn
+// strafes sideways) kept as a fallback for any caller that still drives a
+// heli that way -- see Vehicle.update's `isAerial` branch comment. Useful on
+// its own merits too: it's what actually proves the omni/legacy branch
+// split didn't silently break the underlying flight math, just changed
+// which one the live game reaches for.
+console.log("\n=== Helicopter: legacy nose-relative flight, fallback path (no `omni`) ===");
 {
   const heli = new Vehicle(0, 0, 0, "heli");
   heli.vx = 0;
