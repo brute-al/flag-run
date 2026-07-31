@@ -20,16 +20,18 @@ Then open `http://localhost:8000` in a browser.
 ## Controls
 
 - Pick a vehicle on the start screen (click a card)
-- `W`/`↑` `S`/`↓` — throttle forward / reverse (jeep/heli); on the **tank**,
-  see hovercraft movement below instead
-- `A`/`←` `D`/`→` — turn left / right (jeep/heli); on the **tank**, see
-  hovercraft movement below instead
-- **Tank hovercraft movement**: WASD/arrows (or the left stick) set an
-  absolute direction to move in directly — no need to turn the hull first,
-  it just slides that way immediately, forward/back/strafing all included.
-  The hull itself is now purely cosmetic and just visually settles to face
-  wherever the tank's actually traveling. Only the tank works this way; the
-  jeep and heli still drive/steer the classic way.
+- `W`/`↑` `S`/`↓` — throttle forward / reverse (heli only); on the **tank**
+  and **jeep**, see hovercraft movement below instead
+- `A`/`←` `D`/`→` — turn left / right (heli only); on the **tank** and
+  **jeep**, see hovercraft movement below instead
+- **Hovercraft movement** (tank + jeep): WASD/arrows (or the left stick) set
+  an absolute direction to move in directly — no need to turn first, it just
+  slides that way immediately, forward/back/strafing all included. On the
+  tank, the hull is purely cosmetic and just visually settles to face
+  wherever it's actually traveling, independent of the turret's own aim. The
+  jeep has no turret to keep independent, so it's even simpler there — the
+  whole vehicle just slides and faces its travel direction. Only the heli
+  still flies the older way (see its own strafing note below).
 - **Twin-stick aim** (tank/heli only — the jeep is unarmed): your turret/heli
   nose tracks your mouse cursor independently of however you're driving, and
   autofires whenever you're aiming somewhere and holding the left mouse
@@ -56,7 +58,7 @@ whichever type you've still got left, so the tank/heli can keep clearing the
 way even after the jeeps are gone (though without a jeep left, the flag can't
 actually be picked up again until the round resets).
 
-- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Very fragile: on top of taking damage from turret/gunfire like anything else, ramming a building bruises the jeep itself, not just the building.
+- **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Very fragile: on top of taking damage from turret/gunfire like anything else, ramming a building bruises the jeep itself, not just the building. Moves hovercraft-style (see Controls above).
 - **Tank** — slow, armored, biggest health pool, slow heavy cannon. 2 lives. Armored enough that ramming a building costs it nothing extra. Moves hovercraft-style (see Controls above): WASD sets an absolute travel direction directly, independent of the turret's own aim.
 - **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. 2 lives.
 
@@ -92,7 +94,11 @@ spot twice.
 2. Two turrets guard the enemy base and will shred an unescorted jeep. Take
    the tank or helicopter out first and aim at them (mouse or right stick) to
    knock the turrets out — each has a visible health pip and goes gray/inert once
-   destroyed.
+   destroyed. A handful of turrets scattered along the route are the taller,
+   raised **sniper** variety, whose shots clear rooftops instead of stopping
+   at the nearest wall — they're deliberately built and colored differently
+   (square, steel-blue, up on a raised pole) rather than just brown circles,
+   so you can spot the ones cover won't fully protect you from at a glance.
 3. Drive (or fly) back to your own base and press `V` to swap into the jeep
    — the arena, turret damage, and flag all stay exactly as you left them.
 4. Reach the enemy base and touch the flag to pick it up (jeep only).

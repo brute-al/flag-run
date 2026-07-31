@@ -1,5 +1,47 @@
 # Deploy notes (read this before redeploying)
 
+## NEXT UP — where we left off (2026-07-31, later same day)
+Two more small follow-ups from the user after trying the hovercraft tank +
+gamepad-mute fixes (see the entry directly below): the jeep's driving now
+felt like a holdover from the old design once the tank went hovercraft, and
+the tall sniper turrets were hard to pick out from regular ones at a glance.
+
+**What shipped (jeep hovercraft movement):** extended the exact same
+`input.omni` handling `Vehicle.update()` already had for the tank (see
+below) to the jeep too -- `game.js` now sets
+`omni: this.vehicle.type === "tank" || this.vehicle.type === "jeep"`. No
+changes needed in `vehicle.js` itself, since the omni branch was already
+vehicle-type-agnostic; the jeep is actually simpler than the tank case since
+it has no turret to keep visually independent -- WASD just sets the whole
+vehicle's travel direction directly, and the sprite cosmetically settles to
+face wherever it's going, same as the tank's hull does now. The heli is
+untouched (its flight was never the complaint). Updated the jeep's
+description text, `index.html`/`README.md` controls copy, and fixed two
+single-frame ramming tests (`test/sim.mjs`) that were still using the old
+`throttle: 1` convention for "thrust toward the building" -- they happened
+to still pass (only one frame runs, off pre-set velocity), but the input no
+longer meant what the comment said, so updated them to `turn: 1` to match.
+Added a dedicated test proving the jeep now moves in an absolute direction
+regardless of hull facing, plus a companion test confirming the heli still
+strafes the old nose-relative way (omni is still opt-in, not blanket).
+
+**What shipped (tall turret visual distinction):** `entities.js`'s
+`Turret.draw()` now renders `tall` turrets as a **square** silhouette (both
+the base plate and body -- previously always circles regardless of `tall`)
+in a **steel-blue palette** (`#2f4a68`/`#3d6ba0`) instead of a shade of the
+same warm brown/red every other turret uses, plus the raised support pole's
+stroke colors were retinted to match. The existing raised-on-a-pole height
+and amber "▲" marker/health-bar tint are kept as additional reinforcement,
+but the shape + color change is the part meant to read at a distance,
+before you're close enough to notice the pole or icon. No logic changed
+(`tall` still only affects the pole-lift, the `Bullet`'s rooftop-piercing
+flag, and now the shape/color) -- confirmed via the existing "draw() runs
+against the real map without throwing" smoke test in `test/sim.mjs`, since
+there's no headless way to assert on rendered pixel output; a live
+screenshot is the real check here (see below once deployed).
+
+---
+
 ## NEXT UP — where we left off (2026-07-31)
 **Both fixes below are confirmed live**: three commits
 (51afb51/9fb90ec/1d3627a) each verified via their own diff pages, a READY
