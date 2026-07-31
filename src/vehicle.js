@@ -5,6 +5,20 @@
 // (lateral) component of velocity and pulls it back in line with the wheels.
 // Low grip => long, loose drifts. High grip => tight, planted handling.
 
+// Turns `current` toward `target` at up to `rate` radians/sec, via the
+// shortest angular path, without ever overshooting past `target`. Used for
+// twin-stick aiming (see the `aimAngle` handling in Vehicle.update below):
+// the turret/heli nose chases the aim input (mouse cursor, or a controller's
+// right stick) at a fast-but-finite rate rather than teleporting instantly,
+// so it reads as a snappy turn rather than a pop.
+function slewAngle(current, target, rate, dt) {
+  let diff = target - current;
+  diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  const maxStep = rate * dt;
+  if (Math.abs(diff) <= maxStep) return target;
+  return current + Math.sign(diff) * maxStep;
+}
+
 // Presets, echoing the classic light-jeep / heavy-armor / aerial trio:
 // jeep is fast and loose, tank is slow and planted with a big health pool,
 // heli is fast and floaty and (via `isAerial`) ignores ground obstacles.
@@ -48,7 +62,7 @@ export const VEHICLE_TYPES = {
   tank: {
     label: "Tank",
     description:
-      "Slow, armored, packs a cannon with a turret you traverse using Q/E (or a controller's shoulder buttons) — the turret is bolted to the hull, so it turns along with you as you drive, but Q/E swings it to whatever offset you want and holds it there. Clear turrets so the jeep can get through. 2 lives.",
+      "Slow, armored, twin-stick aim: drive with WASD while the turret independently tracks your mouse cursor (or a controller's right stick) and autofires the cannon whenever you're aiming somewhere — move one way, shoot another. Clear turrets so the jeep can get through. 2 lives.",
     accel: 260,
     reverseAccel: 150,
     maxSpeed: 210,
@@ -63,12 +77,17 @@ export const VEHICLE_TYPES = {
     canCarryFlag: false,
     lives: 2,
     weapon: { damage: 30, fireInterval: 0.9, bulletSpeed: 520, spread: 0.02, label: "cannon" },
-    // Turret traverse: the turret rides along with the hull (see the
-    // heading-delta logic in Vehicle.update below), and `turretTurn` input
-    // (Q/E, or a controller's shoulder buttons) swivels it further on top
-    // of that -- like a real turret ring bolted to a moving hull.
+    // Turret aim: twin-stick -- the turret tracks the player's aim input
+    // (mouse cursor, or a controller's right stick) directly and completely
+    // independent of the hull, via `aimSlewRate` (see Vehicle.update below).
+    // `turretTurnRate` is kept as the *legacy* incremental traverse rate --
+    // still used by the duel-mode AI opponent (aiDriver.js), which aims by
+    // nudging a `turretTurn` value frame to frame rather than supplying an
+    // absolute angle, exactly like the old Q/E scheme this replaced for the
+    // human player.
     hasTurret: true,
     turretTurnRate: 3.2,
+    aimSlewRate: 18,
     // Heavy and armored -- the tank can straight-up bulldoze a weak building
     // by ramming it repeatedly, on top of shooting it. Its armor means it
     // takes no extra self-damage from the impact (no collisionDamage), unlike
@@ -78,7 +97,7 @@ export const VEHICLE_TYPES = {
   heli: {
     label: "Helicopter",
     description:
-      "Fast, fragile. The stick moves it -- forward/back along the nose, left/right strafes sideways -- while Q/E (or a controller's shoulder buttons) spin the nose independently, so you can hover, rotate to face any way, then peel off in that direction. Chaingun (SPACE) for direct fire; missiles (F) arc over rooftops to reach elevated turrets. 2 lives.",
+      "Fast, fragile, twin-stick aim. WASD moves it -- forward/back along the nose, left/right strafes sideways -- while the nose independently tracks your mouse cursor (or a controller's right stick) and autofires the chaingun, fully decoupled from whichever way you're actually flying. Hold F to swap that autofire to longer-range missiles that arc over rooftops. 2 lives.",
     accel: 360,
     reverseAccel: 220,
     maxSpeed: 380,
@@ -92,6 +111,11 @@ export const VEHICLE_TYPES = {
     isAerial: true,
     canCarryFlag: false,
     lives: 2,
+    // Nose-tracking rate for twin-stick aim (see `aimSlewRate` on the tank
+    // preset above, and Vehicle.update below) -- slightly slower than the
+    // tank turret's since the whole airframe visually rotates here, not just
+    // a small turret cap, so a dead-instant snap would read as a glitchy spin.
+    aimSlewRate: 14,
     weapon: { damage: 7, fireInterval: 0.12, bulletSpeed: 600, spread: 0.06, label: "chaingun" },
     // Secondary weapon, heli-only: slower and heavier-hitting than the
     // chaingun, and flagged so its bullets skip building collision (see
@@ -142,12 +166,13 @@ export class Vehicle {
     this.weapon2 = preset.weapon2 ? { ...preset.weapon2, cooldown: 0 } : null;
 
     // Turret aim -- only the tank has one. Starts aligned with the hull so
-    // it looks natural on spawn; from then on it rides along with the hull
-    // (see the heading-delta logic in update() below) while `turretTurn`
-    // input (Q/E, or a controller's shoulder buttons) swivels it further on
-    // top of that, like a real turret ring bolted to a moving hull.
+    // it looks natural on spawn. From then on, twin-stick aim input
+    // (`aimAngle`, see update() below) drives it directly at `aimSlewRate`;
+    // `turretTurnRate` is the older incremental rate still used by the
+    // duel-mode AI opponent's own `turretTurn`-based aiming.
     this.hasTurret = !!preset.hasTurret;
     this.turretTurnRate = preset.turretTurnRate || 0;
+    this.aimSlewRate = preset.aimSlewRate || 14;
     this.turretAngle = heading;
   }
 
@@ -171,12 +196,21 @@ export class Vehicle {
     const prevHeading = this.heading;
 
     if (this.isAerial) {
-      // The heli's yaw reuses the same "independent, no-momentum-coupling"
-      // rotate input as the tank's turret traverse (Q/E, or a controller's
-      // shoulder buttons) -- full turnRate applies whether it's hovering
-      // dead still or screaming along at top speed, completely decoupled
-      // from whatever the stick is doing (see the strafing logic below).
-      this.heading += (input.turretTurn || 0) * this.turnRate * dt;
+      // Twin-stick aim: the nose (and therefore the chaingun/missile's fire
+      // direction -- see game.js) tracks `input.aimAngle` directly, fully
+      // decoupled from whatever the stick is doing to move it (see the
+      // strafing logic below) -- a fast slew rather than an instant snap so
+      // it reads as a turn, not a pop.
+      if (input.aimAngle !== undefined && input.aimAngle !== null) {
+        this.heading = slewAngle(this.heading, input.aimAngle, this.aimSlewRate, dt);
+      } else {
+        // Legacy incremental rotate (Q/E, or a controller's shoulder
+        // buttons) -- no current caller drives a heli this way (the
+        // duel-mode AI only ever flies a tank), but kept so any direct
+        // caller that still feeds `turretTurn` instead of an absolute
+        // `aimAngle` keeps working exactly as before.
+        this.heading += (input.turretTurn || 0) * this.turnRate * dt;
+      }
     } else {
       // Turning authority tapers off a bit at high speed (harder to snap-turn
       // when driving along), but never drops to zero so drifting stays controllable.
@@ -259,14 +293,23 @@ export class Vehicle {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // The turret is bolted to the hull: whatever the hull turned this frame,
-    // the turret turns with it (preserving whatever offset the player dialed
-    // in), and `turretTurn` input (Q/E, or a controller's shoulder buttons)
-    // swivels it further on top of that -- like swiveling a turret ring
-    // while the tank itself is moving, rather than a fully independent aim.
+    // Twin-stick aim: the turret tracks `input.aimAngle` directly and fully
+    // independent of the hull -- no "offset from the hull" concept anymore,
+    // just a turret ring slewing (at `aimSlewRate`) toward wherever you're
+    // aiming, same as the heli's nose above.
     if (this.hasTurret) {
-      const headingDelta = this.heading - prevHeading;
-      this.turretAngle += headingDelta + (input.turretTurn || 0) * this.turretTurnRate * dt;
+      if (input.aimAngle !== undefined && input.aimAngle !== null) {
+        this.turretAngle = slewAngle(this.turretAngle, input.aimAngle, this.aimSlewRate, dt);
+      } else {
+        // Legacy incremental traverse (Q/E, or a controller's shoulder
+        // buttons) -- still used by the duel-mode AI opponent (aiDriver.js),
+        // which aims by nudging `turretTurn` frame to frame rather than
+        // supplying an absolute angle: the turret rides along with however
+        // much the hull turned this frame, plus whatever turretTurn dials in
+        // on top, like a turret ring bolted to a moving hull.
+        const headingDelta = this.heading - prevHeading;
+        this.turretAngle += headingDelta + (input.turretTurn || 0) * this.turretTurnRate * dt;
+      }
     }
   }
 

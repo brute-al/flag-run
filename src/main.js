@@ -114,7 +114,9 @@ function loop(now) {
   }
   prevGamepadSwap = swapHeld;
 
-  game.update(dt);
+  // Twin-stick aim needs the canvas size to convert the mouse's screen
+  // position into a world-space angle (see Game.update's own comment).
+  game.update(dt, canvas.width, canvas.height);
   game.draw(ctx, canvas.width, canvas.height);
 
   for (const event of game.drainEvents()) {
@@ -135,8 +137,8 @@ function loop(now) {
   const jeepsText = hud.lives ? `JEEPS: ${hud.lives.jeep}` : "";
   const tanksText = hud.lives ? `TANKS: ${hud.lives.tank}` : "";
   const helisText = hud.lives ? `HELIS: ${hud.lives.heli}` : "";
-  const weaponText = hud.weaponLabel ? `WEAPON: ${hud.weaponLabel.toUpperCase()} (SPACE)` : "";
-  const weapon2Text = hud.weapon2Label ? `${hud.weapon2Label.toUpperCase()} (F)` : "";
+  const weaponText = hud.weaponLabel ? `WEAPON: ${hud.weaponLabel.toUpperCase()} (AIM TO FIRE)` : "";
+  const weapon2Text = hud.weapon2Label ? `${hud.weapon2Label.toUpperCase()} (HOLD F)` : "";
   statusLineEl.textContent = [jeepsText, tanksText, helisText, weaponText, weapon2Text].filter(Boolean).join("   ·   ");
 
   if (hud.powerupLabel) {

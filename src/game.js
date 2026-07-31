@@ -291,7 +291,11 @@ export class Game {
     return events;
   }
 
-  update(dt) {
+  // `canvasW`/`canvasH` (defaulting to a sane size when omitted, e.g. by the
+  // headless test suite) are only needed to convert the mouse's screen
+  // position into a world-space aim angle -- see `this.input.getAim()`
+  // below and Input.getAim()'s own comment in input.js.
+  update(dt, canvasW = 1600, canvasH = 900) {
     if (this.paused) return;
 
     // Ticks independently of state so an explosion mid-respawn (or right as
@@ -313,8 +317,21 @@ export class Game {
       return;
     }
 
+    // Twin-stick aim: resolved once per frame (mouse cursor vs. the
+    // vehicle's own position, or a controller's right stick -- see
+    // CombinedInput.getAim()) and reused both for the turret/nose tracking
+    // below and the weapon-firing block further down, so a mouse click and
+    // the shot it produces are always aimed at the exact same angle.
+    const aim = this.input.getAim({
+      vehicleX: this.vehicle.x,
+      vehicleY: this.vehicle.y,
+      cameraX: this.camera.x,
+      cameraY: this.camera.y,
+      canvasW,
+      canvasH,
+    });
     const rawInput = this.input.getVector();
-    this.vehicle.update(dt, rawInput);
+    this.vehicle.update(dt, { ...rawInput, aimAngle: aim.angle });
     this.arena.clampToBounds(this.vehicle);
     // Aerial vehicles (helicopter) fly over ground obstacles.
     if (!this.vehicle.isAerial) {
@@ -421,67 +438,74 @@ export class Game {
     this.camera.update(dt, this.vehicle.x, this.vehicle.y);
 
     // Player weapon (tank cannon / heli chaingun). Jeep has no weapon.
-    // The tank's cannon fires along its independently-aimed turret, not
-    // its hull heading -- everything else without a turret (the heli's
-    // forward-facing chaingun) still fires straight along heading.
-    if (this.vehicle.weapon) {
-      this.vehicle.weapon.cooldown -= dt;
-      if (this.input.isFiring() && this.vehicle.weapon.cooldown <= 0) {
-        this.vehicle.weapon.cooldown = this.vehicle.weapon.fireInterval;
-        const aimAngle = this.vehicle.hasTurret ? this.vehicle.turretAngle : this.vehicle.heading;
-        const spread = (Math.random() - 0.5) * 2 * this.vehicle.weapon.spread;
-        const noseX = this.vehicle.x + Math.cos(aimAngle) * (this.vehicle.radius + 6);
-        const noseY = this.vehicle.y + Math.sin(aimAngle) * (this.vehicle.radius + 6);
-        // A powerup pickup (see below) can juice this shot: OVERCHARGE doubles
-        // damage, BIG SHOT fattens the round and hits harder, LASER pierces
-        // through whatever it hits instead of stopping on the first thing.
-        // (ARMOR doesn't touch outgoing shots at all -- see the vehicleHit
-        // damage line further down for its effect.)
-        const mod = this._weaponModifiers();
-        const bullet = new Bullet(
-          noseX,
-          noseY,
-          aimAngle + spread,
-          this.vehicle.weapon.bulletSpeed,
-          this.vehicle.weapon.damage * mod.damageMult,
-          true,
-          false,
-          4 * mod.radiusMult
-        );
-        bullet.piercing = mod.piercing;
-        this.bullets.push(bullet);
-        this.particles.muzzleFlash(noseX, noseY, aimAngle, this.vehicle.weapon.label === "cannon" ? "#ffdca3" : "#fff3c4");
-        this.events.push(this.vehicle.weapon.label === "cannon" ? "playerFireCannon" : "playerFireMg");
-      }
+    // Twin-stick aim: both weapons fire along `aim.angle` (the mouse
+    // cursor's direction, or a controller's right stick), not the vehicle's
+    // hull/turret heading -- those just chase aim.angle visually (see
+    // vehicle.js) and are almost never more than a frame behind it. Firing
+    // is entirely aim-driven: whenever aim.active (mouse held / stick
+    // deflected) and an angle is available, the primary weapon autofires on
+    // its own cooldown, with no separate fire button.
+    if (this.vehicle.weapon) this.vehicle.weapon.cooldown -= dt;
+    if (this.vehicle.weapon2) this.vehicle.weapon2.cooldown -= dt;
+
+    // Holding the secondary-fire modifier (F, or a controller's B/left
+    // trigger) doesn't fire its own separate shot -- it swaps which weapon
+    // the *same* aim-triggered autofire stream uses, so aiming continuously
+    // and tapping the modifier on and off switches between the chaingun and
+    // the missile without ever needing to stop and re-aim.
+    const useSecondary = !!this.vehicle.weapon2 && this.input.isFiring2();
+
+    if (this.vehicle.weapon && aim.active && aim.angle !== null && !useSecondary && this.vehicle.weapon.cooldown <= 0) {
+      this.vehicle.weapon.cooldown = this.vehicle.weapon.fireInterval;
+      const spread = (Math.random() - 0.5) * 2 * this.vehicle.weapon.spread;
+      const noseX = this.vehicle.x + Math.cos(aim.angle) * (this.vehicle.radius + 6);
+      const noseY = this.vehicle.y + Math.sin(aim.angle) * (this.vehicle.radius + 6);
+      // A powerup pickup (see below) can juice this shot: OVERCHARGE doubles
+      // damage, BIG SHOT fattens the round and hits harder, LASER pierces
+      // through whatever it hits instead of stopping on the first thing.
+      // (ARMOR doesn't touch outgoing shots at all -- see the vehicleHit
+      // damage line further down for its effect.)
+      const mod = this._weaponModifiers();
+      const bullet = new Bullet(
+        noseX,
+        noseY,
+        aim.angle + spread,
+        this.vehicle.weapon.bulletSpeed,
+        this.vehicle.weapon.damage * mod.damageMult,
+        true,
+        false,
+        4 * mod.radiusMult
+      );
+      bullet.piercing = mod.piercing;
+      this.bullets.push(bullet);
+      this.particles.muzzleFlash(noseX, noseY, aim.angle, this.vehicle.weapon.label === "cannon" ? "#ffdca3" : "#fff3c4");
+      this.events.push(this.vehicle.weapon.label === "cannon" ? "playerFireCannon" : "playerFireMg");
     }
 
     // Secondary weapon (heli-only missile). `tall: true` on the bullet
     // means it skips building collision entirely -- unlike the chaingun's
     // regular rounds, which stop on whatever's closest, this one arcs over
     // rooftops so it can actually reach a tall turret hiding behind cover.
-    if (this.vehicle.weapon2) {
-      this.vehicle.weapon2.cooldown -= dt;
-      if (this.input.isFiring2() && this.vehicle.weapon2.cooldown <= 0) {
-        this.vehicle.weapon2.cooldown = this.vehicle.weapon2.fireInterval;
-        const spread = (Math.random() - 0.5) * 2 * this.vehicle.weapon2.spread;
-        const noseX = this.vehicle.x + Math.cos(this.vehicle.heading) * (this.vehicle.radius + 6);
-        const noseY = this.vehicle.y + Math.sin(this.vehicle.heading) * (this.vehicle.radius + 6);
-        const mod = this._weaponModifiers();
-        const missile = new Bullet(
-          noseX,
-          noseY,
-          this.vehicle.heading + spread,
-          this.vehicle.weapon2.bulletSpeed,
-          this.vehicle.weapon2.damage * mod.damageMult,
-          true,
-          true,
-          this.vehicle.weapon2.radius * mod.radiusMult
-        );
-        missile.piercing = mod.piercing;
-        this.bullets.push(missile);
-        this.particles.muzzleFlash(noseX, noseY, this.vehicle.heading, "#ffcf8a");
-        this.events.push("playerFireMissile");
-      }
+    if (this.vehicle.weapon2 && aim.active && aim.angle !== null && useSecondary && this.vehicle.weapon2.cooldown <= 0) {
+      this.vehicle.weapon2.cooldown = this.vehicle.weapon2.fireInterval;
+      const spread = (Math.random() - 0.5) * 2 * this.vehicle.weapon2.spread;
+      const noseX = this.vehicle.x + Math.cos(aim.angle) * (this.vehicle.radius + 6);
+      const noseY = this.vehicle.y + Math.sin(aim.angle) * (this.vehicle.radius + 6);
+      const mod = this._weaponModifiers();
+      const missile = new Bullet(
+        noseX,
+        noseY,
+        aim.angle + spread,
+        this.vehicle.weapon2.bulletSpeed,
+        this.vehicle.weapon2.damage * mod.damageMult,
+        true,
+        true,
+        this.vehicle.weapon2.radius * mod.radiusMult
+      );
+      missile.piercing = mod.piercing;
+      this.bullets.push(missile);
+      this.particles.muzzleFlash(noseX, noseY, aim.angle, "#ffcf8a");
+      this.events.push("playerFireMissile");
     }
 
     // Flag pickup / carry / capture — only the jeep can carry it.
