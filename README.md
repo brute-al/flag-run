@@ -137,6 +137,47 @@ outlines, one hard-edged highlight band per shape, faceted (not perfectly
 round) rocks. It's a 2D stand-in for a proper cel-shaded 3D look — see
 "Where this could go next" below.
 
+## Camera & perspective
+
+The camera is an **oblique, pitched-down bird's-eye view** — inspired by
+*Return Fire* (1995) — not true isometric like *Desert Strike* or *SimCity
+2000*. The distinction matters for how this is built: true isometric rotates
+the whole world 45° around the vertical axis, so the ground reads as a
+diamond and moving north on the map moves you diagonally on screen —
+`camera.js`'s `worldToScreen()` would need a completely different
+projection, and every sprite/building asset would need to be redrawn to
+match the rotated grid. This game's camera does none of that: the world
+stays axis-aligned (`worldToScreen` is still a plain `wx - camera.x`,
+`wy - camera.y` subtraction, see `src/camera.js`), and what actually sells
+the "pitched, not flat" look is that anything with real height renders
+*raised above its own ground-contact shadow*, the same cheap 2D trick used
+throughout: buildings extrude a "wall" face below their roof, scaled to a
+per-building `height` derived from their footprint size instead of a single
+fixed amount for every building (`arena.js`'s `_buildingsToObstacles`/
+`_drawBuilding`); every turret's head sits on a support pole above its true
+ground position, tall (rooftop-piercing) turrets much more elevated (34px)
+than regular ones (12px) so that distinction still reads at a glance
+(`entities.js`'s `Turret.draw`); and vehicles render their body a small
+fixed amount (8px) above a soft ground shadow at their true position
+(`vehicleArt.js`'s `drawVehicle`, wired in via `VEHICLE_LIFT` in
+`game.js`). None of this touches physics, collision, or aim math — every
+object's real `x`/`y` stays exactly where the simulation puts it; the lift
+is a screen-space-only offset applied at draw time.
+
+Because objects now visibly extend above their true ground position, a
+fixed draw order (every building, then every turret, then every vehicle,
+regardless of actual position) would get occlusion wrong as soon as two
+things overlap on screen — a vehicle driving behind a tall building should
+be hidden by its wall, not drawn on top of it. `Game.draw()` (`game.js`)
+handles this with a single combined depth-sort pass: every building,
+turret, flag, powerup, bullet, and vehicle goes into one list keyed by its
+true world y (this game's world is oriented so a larger y is closer to the
+camera), sorted ascending, and drawn in that order — so whichever object is
+actually closer to the camera always draws on top, regardless of which
+category it belongs to. Particles (explosions, sparks, dust) are the one
+exception, kept always-on-top and unsorted since they're short-lived and
+purely decorative (see "Effects" above).
+
 Most sound is synthesized live with the Web Audio API in `src/audio.js`.
 The exception is gunfire and explosions: turret fire, the heli's chaingun,
 the tank's cannon, and both explosion cues (turret vs. vehicle/building)
@@ -323,10 +364,6 @@ player's own flag status.
   (A smaller first pass at "more visual pizzazz" already shipped within the
   current 2D canvas renderer — see "Effects" above — without needing this.)
 - Destructible base structures instead of a fixed turret pair.
-- **Isometric/3/4 camera perspective.** Currently discussed as the next big
-  step after duel mode (now that milestones 1-3 are all shipped, see "Duel
-  mode" above) and before another visual/audio polish pass — see
-  `DEPLOY_NOTES.md`.
 - A smarter duel-mode AI that reacts to danger mid-flag-run (aborts a jeep
   run if the player is closing in, retreats when low health, etc.) instead
   of committing to hunt/flag-run in fixed phases — deliberately left out of

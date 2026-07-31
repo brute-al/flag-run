@@ -1,5 +1,99 @@
 # Deploy notes (read this before redeploying)
 
+## NEXT UP — where we left off (2026-07-31, oblique/pitched camera pass)
+**Implementation + tests done, not yet committed/deployed.** This is the
+"isometric view" the user asked about earlier in the session, now
+implemented -- except it's deliberately **not** true isometric. Before
+building anything, we pinned down the terminology: true isometric (Desert
+Strike, SimCity 2000) rotates the whole world 45° so the ground reads as a
+diamond and moving north on the map moves you diagonally on screen -- a
+totally different projection requiring re-derived `worldToScreen()` math and
+every asset redrawn to match the rotated grid. The user's actual reference,
+*Return Fire* (1995), doesn't do that (confirmed via Wikipedia: "a 3D
+bird's-eye view", not isometric) -- its map stays axis-aligned to the
+screen, and the pitched-camera feel comes entirely from objects visibly
+having height/depth, not from rotating the world. The user confirmed: build
+the Return Fire version, not a Desert-Strike-style diamond-grid rewrite.
+
+**Why this was a much smaller lift than a true isometric rewrite would have
+been**: `camera.js`'s `worldToScreen()` needed **zero changes** -- it's still
+the exact same `wx - camera.x, wy - camera.y` subtraction as before. Nothing
+about the world's orientation changed. What actually sells the "pitched, not
+flat" look is the same cheap 2D trick applied more broadly and more
+proportionally than before:
+
+- **Buildings** (`arena.js`): the wall/roof extrusion trick already existed
+  (see the 2026-07-2x "Redesign building visuals" entry below) but used one
+  fixed 5,7px offset for every building regardless of size. Added a
+  per-building `height` field (`_buildingsToObstacles`, deterministic from
+  the building's own footprint radius -- bigger buildings look taller, no
+  extra randomness needed) and scaled `_drawBuilding`'s extrusion offset to
+  it. Procedural rocks got a smaller matching treatment (a soft
+  radius-scaled ground shadow, `_drawRock`) so the two arena modes read
+  consistently.
+- **Turrets** (`entities.js`): tall (rooftop-piercing) turrets already lifted
+  their head 34px above a ground shadow on a support pole (see the tall-
+  turret work below); *regular* turrets previously sat perfectly flat
+  (lift = 0). Gave them a smaller lift (12px) with the same pole treatment
+  (now generalized to any lift > 0, colored per turret type instead of
+  hardcoded steel-blue), so every turret now reads as standing up off the
+  ground -- while keeping tall turrets clearly more elevated so that
+  distinction (their shots clear rooftops) doesn't get washed out.
+- **Vehicles** (`vehicleArt.js`/`game.js`): `drawVehicle()` gained an
+  optional `lift` param (default 0, so nothing else calling it changes
+  behavior) -- draws a soft ground-contact shadow at the vehicle's true
+  screen position, then renders the hull/turret/heli/jeep body offset
+  `lift` pixels up from it. `game.js` wires a shared `VEHICLE_LIFT = 8`
+  constant into both the player's and the AI opponent's draw calls. Purely
+  a screen-space offset -- `vehicle.x`/`vehicle.y` (physics, collision, aim
+  math, everything else) are completely untouched.
+
+**The depth-sort this all actually required**: once height became
+significant enough to notice, the *old* draw order (every building, then
+every turret, then every vehicle, always, regardless of position -- see
+`Game.draw()` before this change) would start looking wrong: a vehicle
+driving behind a tall building should be hidden by its wall, but the old
+code always drew vehicles last regardless. Fixed by splitting
+`Arena.draw()` into `drawBackground()` (ground/roads/bases -- no height,
+always safe to draw first/underneath everything) and `drawObstacle()` (culls
++ draws one obstacle), then rewriting `Game.draw()` to build a single
+combined list of every building, turret, flag, powerup, bullet, and vehicle
+keyed by its own true world y (this game's orientation: larger y = closer to
+the camera), sort it ascending, and execute the draws in that order. So
+whichever object is actually closer to the camera always wins the
+occlusion, regardless of which category it belongs to. `Arena.draw()` itself
+is kept as a legacy convenience wrapper (background + obstacles, unsorted)
+for anything that just wants "the whole arena" on its own -- `game.js`
+doesn't call it anymore. Particles (explosions/sparks/dust) stay outside the
+sort, always drawn last on top -- they're short-lived and purely decorative
+(see README's "Effects" section), so giving every one its own sort entry
+every frame wasn't worth it.
+
+**Test coverage**: no new dedicated test section was needed -- the existing
+"draw() runs against the real map without throwing" smoke test
+(`test/sim.mjs`, using a no-op `Proxy` fake canvas context) already exercises
+every changed draw path (buildings, rocks, turrets, both vehicle types, the
+new sort) every time it runs, and passing that after this change is exactly
+the regression coverage this kind of purely-visual, non-state-mutating
+change needs. Reran `node test/sim.mjs` 3x after the change -- stable "ALL
+PASS" each time, no behavior changes to any game-state test (as expected,
+since every change here is screen-space-only).
+
+**Not yet done**: commit to GitHub, verify Vercel deployment, live-screenshot
+to confirm the pitched/elevated look actually reads as intended (buildings
+with visible walls scaled to size, turrets standing on poles, vehicles with
+a soft drop shadow) rather than just checking it doesn't throw.
+
+**What's next after this ships** (per the user's own sequencing): a general
+visual/audio polish pass, done last since it'd need re-tuning against
+this new perspective anyway. No specific polish items chosen yet beyond the
+standing options list (licensed CC0 sample pack, weapon-cooldown HUD
+indicator, destructible base structures instead of a fixed turret pair, a
+smarter threat-reactive duel-mode AI -- see README's "Where this could go
+next").
+
+---
+
 ## NEXT UP — where we left off (2026-07-31, duel mode milestone 3)
 **Implementation + tests done, not yet committed/deployed** (see task list --
 next steps are updating this file's own "commit/deploy/live-verify" steps
