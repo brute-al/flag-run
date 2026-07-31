@@ -3,12 +3,18 @@
 ## NEXT UP — where we left off (2026-07-31)
 Duel mode's **milestone 2 (combat) and the territorial-turrets follow-up are
 both confirmed live** (see the previous entry below for their commit/
-deployment verification trail). On top of that, a **bigger control-scheme
-rework the user asked for after playing more -- twin-stick aiming -- is
-built and passing all tests locally, but NOT yet committed, deployed, or
-live-verified.** Check `list_deployments`/the commit history before
-assuming it's live, per this file's own commit-verification lesson further
-down; don't assume a push succeeded without checking.
+deployment verification trail). On top of that, **twin-stick aiming is also
+confirmed live**: three commits (9c44a1f/e22f2f0/fdabc47) all verified via
+their own diff pages, a READY Vercel deployment
+(dpl_5wnh2f8V5zk6bFkLCi3UyYjDB4iQ) matching the last of them, and a live
+in-browser check (tank selected, mouse cursor moved and the turret visibly
+tracked it in two before/after screenshots, HUD showing the new "CANNON
+(AIM TO FIRE)" label, no console errors from the game's own code -- only an
+unrelated github.com extension-connection error). A live visual of an
+actual fired shot wasn't captured (the muzzle flash/bullet is on-screen for
+well under a second, same limitation noted for milestone 2's verification),
+but the dedicated Game-integration tests exercise the exact aim-then-fire
+path with real physics, which is the authoritative check.
 
 **What shipped (twin-stick aiming, replacing Q/E turret traverse):** the
 user played Minishoot Adventure and wanted the tank/heli to aim like a
