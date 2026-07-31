@@ -1,5 +1,114 @@
 # Deploy notes (read this before redeploying)
 
+## NEXT UP — where we left off (2026-07-31, duel mode milestone 3)
+**Implementation + tests done, not yet committed/deployed** (see task list --
+next steps are updating this file's own "commit/deploy/live-verify" steps
+below once that happens). This finishes duel mode into an actual, winnable
+match, per the user's own explicit spec: **(1)** first side to get the flag
+wins, **(2)** the AI should feel "more like a real opponent" rather than a
+pure rusher or pure flag-runner, **(3)** the opponent has to actually get the
+flag to win -- blowing it up over and over doesn't end the round by itself.
+
+**What shipped:** a new `_updateAiMode(dt)` state machine in `game.js`,
+sitting above `aiDriver.js` (left completely unchanged -- it still only
+knows how to chase whatever route/target it's handed). Four modes: `hunt`
+(default -- drives the armed tank toward the player's flag and fights,
+exactly like milestone 2, for `AI_HUNT_DURATION` = 30 seconds), `returnToBase`
+(routes home, still fights along the way -- retreating to swap isn't
+surrendering), `flagRun` (once home, swaps into an unarmed jeep via the new
+`_spawnAiJeep()` -- the same base-swap rule the player follows via `V` -- and
+routes to the player's flag, `playerFlag`), `deliver` (carries it home;
+arriving sets `state = "lost"`). Respawning (`_spawnAI()`, reused for both
+round-start and post-death) always resets to `hunt` in a fresh tank, so a
+dead flag-running jeep naturally bounces the AI back to aggression for a
+while before its next attempt -- this cadence is what's meant to read as "a
+real opponent" splitting its attention, rather than a live-position-chasing
+AI (deliberately **not** added -- see scope decisions below).
+
+The player's own win path (`flag.carrier`+distance check) was already there
+and untouched; the AI's new `deliver`-mode check is its exact mirror, so the
+win condition is fully symmetric. A flag-carrying AI jeep destroyed
+mid-run drops `playerFlag` on the spot (`playerFlag.dropAt()`, new
+`aiFlagDropped` event) exactly like the player's own jeep would, and the
+"OUT OF VEHICLES" lives-exhaustion loss for the player is untouched, still a
+separate mechanic from this flag-delivery win/loss.
+
+New HUD line `playerFlagStatus` (duel-mode only) mirrors the existing
+`flagStatus` line but for the player's *own* flag ("safe at your base" /
+"taken by the enemy!" / "dropped in the field"), styled as a warning (red/
+orange, bold) rather than `flagStatus`'s neutral color, so the player
+actually notices the AI is out there with it instead of finding out only
+once the round is already lost. New sound: `aiFlagPickup` deliberately
+reuses the existing damage-thud SFX (`_playHit()`), not the celebratory
+pickup chime, since it's a threat cue, not a reward. `aiFlagDropped` and
+`aiFlagCapture` get no dedicated sound, matching the existing "OUT OF
+VEHICLES" precedent of leaning on HUD/message text for those moments. Both
+are also deliberately **not** wired into `music.js`'s crossfade system, to
+avoid fighting the player's own flag-carrying crossfade logic.
+
+**Scope decisions (not bugs, not forgotten):**
+- **No periodic re-pathing during `hunt`.** The AI's hunt-mode route toward
+  `playerFlag` is set once at spawn/mode-entry, same as milestone 2, rather
+  than continuously re-aimed at the player's live position. Chasing the
+  player's actual position would read as more "real opponent"-like too, but
+  risked destabilizing the existing milestone-1 distance-based navigation
+  test, and the user's "more like a real opponent" answer was specifically
+  about splitting attention between combat and flag-running, not about live
+  pursuit.
+- **No threat-reactive AI.** It doesn't abort a flag run if the player is
+  closing in, doesn't retreat at low health, etc. -- it commits to each
+  phase in fixed durations and only reacts to actually dying. Listed in
+  README's "Where this could go next" as a future improvement.
+
+**Test regression + fix:** `AI_HUNT_DURATION` broke section 19's "AI made
+real progress toward the player's flag" test (90 sim-seconds, checks
+`endDist < startDist * 0.6`) -- the AI would break off after 30 seconds and
+head *toward its own base* (away from the flag) for part of that window,
+invalidating the distance comparison. Fixed by pinning
+`game.aiModeTimer = Infinity` right before that specific test's loop, so it
+isolates milestone-1's baseline navigation from milestone-3's new
+mode-switching (which gets its own dedicated coverage instead, see below).
+Confirmed stable across 3 consecutive `node test/sim.mjs` runs after the fix.
+
+**New test coverage** (`test/sim.mjs`, three new sections after the
+territorial-turret tests): the full `hunt` → `returnToBase` → `flagRun` →
+`deliver` cycle (positions/timers set directly, same "isolate the mechanic"
+philosophy as the rest of the suite, rather than waiting out real
+pathfinding for each transition); the AI actually picking up and delivering
+`playerFlag` and ending the round (`state === "lost"`, `aiFlagCapture`
+event, `update()` becomes a no-op afterward); a flag-carrying AI jeep
+dying mid-run drops the flag at the death spot (`aiFlagDropped` event) and
+respawns back into `hunt` mode as a tank, while `state` stays `"playing"`
+throughout (combat alone never ends it); and the new `playerFlagStatus` HUD
+field across all three states plus confirming it's `null` outside duel mode.
+
+**Docs:** README's "Duel mode" section rewritten to describe milestone 3 as
+shipped (dropped the "(experimental)" tag from the section header and from
+`mirrorMap.js`/`aiDriver.js` in the project-layout list, since duel mode is
+now a complete, winnable mode); the "next milestone" bullet in "Where this
+could go next" replaced with the isometric-camera discussion (see below) and
+the specific threat-reactive-AI scope-out noted above.
+
+**Not yet done:** commit to GitHub, verify Vercel deployment, live-verify
+(duel-mode checkbox copy + the new `playerFlagStatus` HUD element -- likely
+via the same `javascript_tool` direct-import/teleport-state technique used
+for the tall-turret visual check, since watching a full AI flag-run cycle in
+real time isn't practical over automation).
+
+**What's next after this ships** (explicit user-confirmed sequencing,
+*not yet started*): an isometric/3-4 camera perspective swap (discussed at
+length -- `Camera.worldToScreen()` moves from flat top-down subtraction to
+an axonometric projection, needs a painter's-algorithm depth-sort pass
+across arena/entities/vehicles, building height/extrusion redesigned for a
+true isometric look, and the twin-stick screen-to-world aim conversion
+reasoned through under the new projection), done *before* a general
+visual/audio polish pass since polish would need re-tuning against the new
+projection anyway. No specific polish items chosen yet beyond the standing
+options list (licensed CC0 sample pack, weapon-cooldown HUD indicator,
+destructible base structures instead of a fixed turret pair).
+
+---
+
 ## NEXT UP — where we left off (2026-07-31, later same day)
 **Both follow-ups below are confirmed live**: three commits
 (79232a2/8869b95/93a7788), a READY Vercel deployment

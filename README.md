@@ -197,7 +197,7 @@ version instead (this is what the test suite uses for the vehicle/weapon/
 lives mechanics, since sparse procedural obstacles are easier to test
 against with simple "steer at the target" logic).
 
-## Duel mode (experimental)
+## Duel mode
 
 Check "Duel mode" on the vehicle-select screen to play against a computer
 opponent instead of the usual single-player run. The map becomes a mirrored,
@@ -209,28 +209,36 @@ same way the connectivity test does (`src/pathfinding.js`'s shared road
 graph + BFS route), using the same arcade vehicle physics and obstacle
 collision as the player (`src/aiDriver.js`).
 
-This is a **staged build** — see `DEPLOY_NOTES.md` for the full plan.
-**Milestone 1** shipped a fair symmetric map and an AI that can actually
-navigate to your flag on its own, including recovering when it wedges itself
-against a building (reverses and retries, and after a few failed attempts on
-the same spot, gives up on that exact point and moves on rather than
-oscillating forever). **Milestone 2** armed it: the AI's turret independently
-swivels toward and fires on you whenever you're within range and it's
-roughly aimed — independent of the hull, just like your own turret tracks
-your mouse/right-stick aim independently of however you're driving — and it
-can now take damage and be destroyed,
-respawning after a short delay just like you do. Turrets are also
+This was a **staged build** — see `DEPLOY_NOTES.md` for the full history —
+and is now a complete, winnable mode. **Milestone 1** shipped a fair
+symmetric map and an AI that can actually navigate to your flag on its own,
+including recovering when it wedges itself against a building (reverses and
+retries, and after a few failed attempts on the same spot, gives up on that
+exact point and moves on rather than oscillating forever). **Milestone 2**
+armed it: the AI's turret independently swivels toward and fires on you
+whenever you're within range and it's roughly aimed — independent of the
+hull, just like your own turret tracks your mouse/right-stick aim
+independently of however you're driving — and it can now take damage and be
+destroyed, respawning after a short delay just like you do. Turrets are also
 **territorial**: ones north of the map's exact halfway line (your side)
 defend it by targeting the AI opponent, ones south of that line (the AI's
 side) defend it by targeting you — a real capture-the-flag feel where
 you're each fighting through the other's defenses while your own turrets
-cover you. What's **not** here yet:
-the AI can't switch vehicles (a human player can hop into the jeep at their
-own base — the AI can't), your own flag still isn't actually pickup-able by
-anyone yet, and there's no win/loss consequence tied to any of this — beating
-up the AI just respawns it, there's no way to actually win or lose a duel
-round yet. Vehicle-switching + flag-pickup + a real win condition are the
-next milestone.
+cover you.
+
+**Milestone 3** finishes it into an actual, winnable match. The AI now
+splits its attention instead of hunting forever: it drives its tank and
+fights you for a while (30 seconds by default), then breaks off, drives home,
+swaps into an unarmed jeep at its own base — exactly the rule you follow via
+`V` — and makes a real run at your own flag. First side to actually deliver
+the *other* flag to their own base wins; beating up the AI (or it beating up
+you) never ends the round by itself, only a real delivery does — if you
+destroy its jeep mid-run, the flag just drops where it fell and the AI
+bounces back into hunting for a while before it tries again, the same way
+your own jeep dropping the enemy flag doesn't lose you the round. A
+dedicated HUD line ("YOUR FLAG: ...") tracks your own flag's status the same
+way the existing flag status line already tracks the enemy one, so you
+actually notice the AI is out there with it before you've already lost.
 
 Map data is © OpenStreetMap contributors, licensed under the Open Database
 License (ODbL) — see `src/mapData.js`'s header comment and
@@ -264,9 +272,9 @@ src/
   game.js         orchestrates state: select, pickup, capture, damage, respawn, win, sound events
   audio.js        Web Audio synth engine (engine hum + one-shot SFX) + 4 real gunfire/explosion samples
   music.js        background music player -- random track per round, crossfades to a flag-getting track
-  mirrorMap.js    (experimental) mirrors map data to build duel mode's symmetric double-height map
+  mirrorMap.js    mirrors map data to build duel mode's symmetric double-height map
   pathfinding.js  shared road-graph + BFS route finder, used by the AI opponent and the connectivity test
-  aiDriver.js     (experimental) autonomous "input" source that steers a vehicle along a route
+  aiDriver.js     autonomous "input" source that steers a vehicle along a route (routing/combat only -- see game.js's _updateAiMode for what it's told to do and when)
 sfx/              4 short CC0 gunshot/explosion recordings (see DEPLOY_NOTES.md for sources)
 music/            3 background tracks + 1 flag-getting track (see DEPLOY_NOTES.md for sources)
 tools/
@@ -293,11 +301,16 @@ still work with real obstacles in the mix. It also covers experimental duel
 mode: the map-mirroring math, that the mirrored map's two halves are
 actually connected (not just each half individually), that the AI opponent
 makes real, measurable progress toward the player's flag on the real map
-within a generous time budget — not just that a route exists — and (as of
-milestone 2) that the AI's turret actually aims and fires when a target is
-in range, that its fire actually damages the player, that player fire
-actually damages and destroys the AI, and that it respawns afterward at
-full health.
+within a generous time budget — not just that a route exists — and that the
+AI's turret actually aims and fires when a target is in range, that its
+fire actually damages the player, that player fire actually damages and
+destroys the AI, and that it respawns afterward at full health. As of
+milestone 3, it also covers the AI's full hunt → return-to-base → flag-run →
+deliver mode cycle, the AI actually picking up and delivering the player's
+own flag home (ending the round), that combat alone never ends the round for
+either side, that a flag-carrying AI jeep drops the flag on death and
+respawns back into hunt mode, and the duel-only HUD line that tracks the
+player's own flag status.
 
 ## Where this could go next
 
@@ -310,14 +323,15 @@ full health.
   (A smaller first pass at "more visual pizzazz" already shipped within the
   current 2D canvas renderer — see "Effects" above — without needing this.)
 - Destructible base structures instead of a fixed turret pair.
-- **Duel mode vehicle-switching + flag-pickup + real win condition**
-  (milestones 1 and 2 — symmetric map, AI pathing, and AI combat — already
-  shipped, see "Duel mode" above): let the AI swap into the jeep at its own
-  base once the flag looks gettable, the same way a human player can; let
-  either side actually pick up the other's flag; and add the symmetric
-  win/loss check that ties it all together. Discussed with the user as a
-  bigger, multi-part follow-up rather than a quick patch (see
-  `DEPLOY_NOTES.md`).
+- **Isometric/3/4 camera perspective.** Currently discussed as the next big
+  step after duel mode (now that milestones 1-3 are all shipped, see "Duel
+  mode" above) and before another visual/audio polish pass — see
+  `DEPLOY_NOTES.md`.
+- A smarter duel-mode AI that reacts to danger mid-flag-run (aborts a jeep
+  run if the player is closing in, retreats when low health, etc.) instead
+  of committing to hunt/flag-run in fixed phases — deliberately left out of
+  milestone 3's scope, see the class-level comment at the top of `Game` in
+  `src/game.js`.
 - Swap the synthesized SFX for a licensed/CC0 sample pack (e.g. Kenney.nl)
   if you want a punchier, less "retro synth" sound.
 - A visible weapon-cooldown/reload indicator in the HUD instead of just the
