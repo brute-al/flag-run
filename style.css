@@ -49,6 +49,23 @@ canvas#game {
   letter-spacing: 0.5px;
 }
 
+/* Duel mode only (see game.js's getHudState/playerFlagStatus). Styled as a
+   warning, not a neutral status line like #flagStatus above -- this is
+   specifically for "the AI opponent has your flag," so it should read as
+   urgent rather than just informational. */
+#playerFlagStatus {
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  color: #ff6b4a;
+  text-shadow: 0 0 6px rgba(255, 107, 74, 0.6);
+  white-space: nowrap;
+}
+
+#playerFlagStatus.hidden {
+  display: none;
+}
+
 #statusLine {
   font-size: 13px;
   letter-spacing: 0.5px;
