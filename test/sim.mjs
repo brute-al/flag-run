@@ -775,18 +775,39 @@ console.log("\n=== Tank hovercraft (omnidirectional) movement ===");
   check("the perpendicular (sideways) velocity bled off while the stick was held", Math.abs(bumped.vy) < 20);
   check("the held (eastward) direction kept building speed", bumped.vx > 100);
 
-  console.log("[omni movement is opt-in per-vehicle -- Game only sets it for the player's own tank]");
+  // Follow-up user feedback: once the tank went hovercraft, the jeep's old
+  // car-style steering started feeling like a relic of the pre-twin-stick
+  // design, so it got the same treatment (see game.js's
+  // `omni: type === "tank" || type === "jeep"`). The jeep has no turret to
+  // keep independent of the hull, so this is even simpler for it than the
+  // tank -- the whole vehicle sprite just slides in the held direction and
+  // cosmetically faces wherever it's actually traveling.
+  console.log("[the jeep also drives hovercraft-style now, matching the tank]");
   const jeepInput = makeInput();
   const jeepGame = new Game(jeepInput, { useRealMap: false });
   jeepGame.chooseVehicle("jeep");
-  jeepGame.vehicle.heading = Math.PI;
+  jeepGame.vehicle.heading = Math.PI; // hull facing "west" (-x)
   jeepGame.vehicle.vx = 0;
   jeepGame.vehicle.vy = 0;
-  jeepInput.set({ throttle: 0, turn: 1 });
+  jeepInput.set({ throttle: 0, turn: 1 }); // stick pushed "east"
   jeepGame.update(dt);
   check(
-    "the jeep (not the tank) still steers the old car-style way -- turn alone doesn't thrust it sideways",
-    Math.abs(jeepGame.vehicle.vx) < 1 && Math.abs(jeepGame.vehicle.vy) < 1
+    "the jeep accelerated east (+x) despite its hull facing west, just like the tank",
+    jeepGame.vehicle.vx > 0
+  );
+
+  console.log("[omni movement is still opt-in -- the heli keeps its own already-decoupled flight controls]");
+  const heliInput = makeInput();
+  const heliGame = new Game(heliInput, { useRealMap: false });
+  heliGame.chooseVehicle("heli");
+  heliGame.vehicle.heading = Math.PI;
+  heliGame.vehicle.vx = 0;
+  heliGame.vehicle.vy = 0;
+  heliInput.set({ throttle: 0, turn: 1, aimAngle: null });
+  heliGame.update(dt);
+  check(
+    "the heli still strafes relative to its own nose (right.x/right.y at heading PI), not an absolute direction",
+    Math.abs(heliGame.vehicle.vx) < 1 && heliGame.vehicle.vy < 0
   );
 }
 
@@ -1150,7 +1171,10 @@ console.log("[jeep ramming a building also damages the jeep itself]");
   game.vehicle.vy = 0;
 
   const startHealth = game.health;
-  input.set({ throttle: 1, turn: 0 });
+  // The jeep now also drives hovercraft-style (see the earlier tank-ramming
+  // test's comment for the convention): `turn`, not `throttle`, is the
+  // raw +x thrust axis.
+  input.set({ throttle: 0, turn: 1 });
   game.update(dt);
   const events = game.drainEvents();
 
@@ -1173,7 +1197,7 @@ console.log("[tank ramming a building takes no self-damage -- it's armored]");
   game.vehicle.vy = 0;
 
   const startHealth = game.health;
-  input.set({ throttle: 1, turn: 0 });
+  input.set({ throttle: 0, turn: 1 }); // hovercraft convention -- see above
   game.update(dt);
 
   check("tank ramming the same way takes no self-damage", game.health === startHealth);
