@@ -20,14 +20,24 @@ Then open `http://localhost:8000` in a browser.
 ## Controls
 
 - Pick a vehicle on the start screen (click a card)
-- `W`/`↑` `S`/`↓` — throttle forward / reverse
-- `A`/`←` `D`/`→` — turn left / right
+- `W`/`↑` `S`/`↓` — throttle forward / reverse (jeep/heli); on the **tank**,
+  see hovercraft movement below instead
+- `A`/`←` `D`/`→` — turn left / right (jeep/heli); on the **tank**, see
+  hovercraft movement below instead
+- **Tank hovercraft movement**: WASD/arrows (or the left stick) set an
+  absolute direction to move in directly — no need to turn the hull first,
+  it just slides that way immediately, forward/back/strafing all included.
+  The hull itself is now purely cosmetic and just visually settles to face
+  wherever the tank's actually traveling. Only the tank works this way; the
+  jeep and heli still drive/steer the classic way.
 - **Twin-stick aim** (tank/heli only — the jeep is unarmed): your turret/heli
   nose tracks your mouse cursor independently of however you're driving, and
   autofires whenever you're aiming somewhere and holding the left mouse
   button — move one way, shoot another, no separate fire key. On a
   controller, the right stick does this: push it in a direction to aim and
-  autofire, same as the mouse.
+  autofire, same as the mouse. Once a controller is connected it's the sole
+  aim/fire input — the mouse's resting position stops mattering entirely, so
+  it can't fight the right stick.
 - `F` (or a controller's `B`/left trigger) — heli only: hold this while
   aiming to swap the ongoing autofire from its chaingun to its longer-range
   missile, which arcs over rooftops instead of stopping on the first
@@ -47,7 +57,7 @@ way even after the jeeps are gone (though without a jeep left, the flag can't
 actually be picked up again until the round resets).
 
 - **Jeep** — fast, light, unarmed. Only vehicle that can carry the flag. 3 lives. Very fragile: on top of taking damage from turret/gunfire like anything else, ramming a building bruises the jeep itself, not just the building.
-- **Tank** — slow and planted, barely drifts, biggest health pool, slow heavy cannon. 2 lives. Armored enough that ramming a building costs it nothing extra.
+- **Tank** — slow, armored, biggest health pool, slow heavy cannon. 2 lives. Armored enough that ramming a building costs it nothing extra. Moves hovercraft-style (see Controls above): WASD sets an absolute travel direction directly, independent of the turret's own aim.
 - **Helicopter** — fast and floaty, flies straight over ground obstacles, fragile, fast weak chaingun. 2 lives.
 
 Each has its own stats (top speed, grip, turn rate, health, weapon) defined

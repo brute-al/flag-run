@@ -1,6 +1,56 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-31)
+Follow-up user feedback on twin-stick aiming (see the entry directly below):
+**(1)** the mouse's resting cursor position was fighting the right stick
+whenever a gamepad was connected, and **(2)** the tank's driving felt wrong
+now that its turret aims independently -- the user's own suggested fix was
+to make it "more of a hovercraft."
+
+**What shipped (gamepad mute):** `CombinedInput.getAim()`/`isFiring()`/
+`isFiring2()` now check `gamepad.isConnected()` first -- if a controller has
+ever been touched this session, it's the *exclusive* aim/fire input, full
+stop, and the mouse/keyboard are never consulted at all (previously they
+fell back to the mouse whenever the right stick recentered, which is what
+caused the fight). `GamepadInput` gained a small `isConnected()` getter to
+support this. No existing test could trigger a `gamepadconnected` event in
+this headless env, so a new test in `test/sim.mjs` (section 12) sets
+`pad.index` directly (exactly what `isConnected()` checks) to simulate a
+connected controller and confirms the mouse's still-held aim/fire state is
+fully ignored once it is.
+
+**What shipped (tank hovercraft movement):** the tank's own WASD/left-stick
+input now sets an absolute movement direction directly (`src/vehicle.js`,
+new `input.omni` branch), instead of turning the hull and thrusting along
+it. The hull itself becomes purely cosmetic post-move, slewing to visually
+face wherever the tank's actually traveling (reusing the same `slewAngle()`
+helper the twin-stick aim tracking already uses). `game.js` only sets
+`omni: true` for the *player's own* tank (`this.vehicle.type === "tank"`) --
+the duel-mode AI opponent's tank keeps driving the old turn-to-face way
+unchanged, since `aiDriver.js`'s pursuit steering assumes that model and
+never sets the flag. Explicitly **heli-only excluded**: the user said the
+heli's already-decoupled flight didn't feel like a problem.
+  - A regression surfaced via the existing ramming test: a bare "add thrust
+    in the held direction, every frame" model has nothing to fight a
+    *perpendicular* velocity kick, like the bounce `arena.js`'s
+    `_resolveCircleCollision` applies on impact -- so a rammed tank took one
+    hit, then flew off at the deflected angle and never came back, and the
+    building was never destroyed. Fix: while a direction is actively held,
+    velocity is decomposed into along-input vs. perpendicular-to-input
+    components, and the perpendicular part is damped by the tank's own
+    `grip` stat -- the same stat that used to tame lateral drift under the
+    old car-physics model. New dedicated test in `test/sim.mjs` (section
+    11c) injects a hard sideways velocity kick and confirms it bleeds off
+    while a direction is held, plus confirms the omni flag is opt-in (a jeep
+    given the same input still steers the old way).
+- `index.html`/`README.md`: help text, tank card description, and controls
+  section updated to describe hovercraft movement and gamepad-exclusive
+  aim/fire.
+- Tests: `node test/sim.mjs` stable at ALL PASS across multiple runs,
+  including the new gamepad-mute and hovercraft-movement coverage above.
+
+---
+
 Duel mode's **milestone 2 (combat) and the territorial-turrets follow-up are
 both confirmed live** (see the previous entry below for their commit/
 deployment verification trail). On top of that, **twin-stick aiming is also
