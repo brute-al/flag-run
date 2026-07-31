@@ -34,7 +34,7 @@ function slewAngle(current, target, rate, dt) {
 export const VEHICLE_TYPES = {
   jeep: {
     label: "Jeep",
-    description: "Fast, light, unarmed — the only ride that can grab the flag. Very fragile: 3 lives, and ramming a building bruises the jeep itself, not just the building.",
+    description: "Fast, light, unarmed — the only ride that can grab the flag. Hovercraft movement like the tank: WASD slides it in any direction, no need to turn first. Very fragile: 3 lives, and ramming a building bruises the jeep itself, not just the building.",
     accel: 420,
     reverseAccel: 260,
     maxSpeed: 340,

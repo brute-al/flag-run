@@ -214,13 +214,17 @@ export class Turret {
     const hy = s.y - lift;
 
     if (lift > 0) {
-      // Ground shadow at the true position, plus the support tower itself.
+      // Ground shadow at the true position, plus the support tower itself,
+      // tinted to match the tall turret's own steel-blue palette (see
+      // basePlateColor/bodyColor below) rather than the regular turret's
+      // brown, so the whole silhouette reads as "different thing" at a
+      // glance, not just the raised head.
       ctx.fillStyle = "rgba(0,0,0,0.28)";
       ctx.beginPath();
       ctx.ellipse(s.x, s.y + 4, 16, 6, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = "#5a4632";
+      ctx.strokeStyle = "#22344a";
       ctx.lineWidth = 6;
       ctx.beginPath();
       ctx.moveTo(s.x - 10, s.y);
@@ -228,7 +232,7 @@ export class Turret {
       ctx.moveTo(s.x + 10, s.y);
       ctx.lineTo(hx + 5, hy);
       ctx.stroke();
-      ctx.strokeStyle = "#2a2118";
+      ctx.strokeStyle = "#111c28";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(s.x - 8, s.y - lift * 0.5);
@@ -245,31 +249,60 @@ export class Turret {
     ctx.save();
     ctx.translate(hx, hy);
 
-    // Base plate.
-    const basePlateColor = this.tall ? "#6b4a32" : "#5a4632";
-    ctx.fillStyle = this.destroyed ? "#2a221c" : damageTint(basePlateColor, healthPct);
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#1a1a1a";
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    // Regular turrets read as round brown bunkers; tall sniper turrets get
+    // a completely different silhouette (square) and a cool steel-blue
+    // palette instead of a similar warm brown/red, so which ones fire over
+    // rooftops is obvious at a glance instead of only showing up as a small
+    // "▲" icon and a raised pole once you're already looking closely.
+    const basePlateColor = this.tall ? "#2f4a68" : "#5a4632";
+    const bodyColor = this.tall ? "#3d6ba0" : "#7a2e28";
 
-    const bodyColor = this.tall ? "#8a3228" : "#7a2e28";
+    ctx.fillStyle = this.destroyed ? "#2a221c" : damageTint(basePlateColor, healthPct);
+    if (this.tall) {
+      const bp = this.radius + 6;
+      ctx.fillRect(-bp, -bp, bp * 2, bp * 2);
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(-bp, -bp, bp * 2, bp * 2);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
     ctx.fillStyle = this.destroyed ? "#3a2f2a" : damageTint(bodyColor, healthPct);
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    if (this.tall) {
+      const r = this.radius;
+      ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.strokeRect(-r, -r, r * 2, r * 2);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     if (!this.destroyed) {
-      // Hard-edged highlight facet (upper-left quarter).
+      // Hard-edged highlight facet (upper-left quarter/corner).
       ctx.fillStyle = "rgba(255,255,255,0.2)";
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius, Math.PI, Math.PI * 1.5);
-      ctx.lineTo(0, 0);
-      ctx.closePath();
-      ctx.fill();
+      if (this.tall) {
+        const r = this.radius;
+        ctx.beginPath();
+        ctx.moveTo(-r, -r);
+        ctx.lineTo(r, -r);
+        ctx.lineTo(-r, r);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, Math.PI, Math.PI * 1.5);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
 
       ctx.rotate(this.aimAngle);
       ctx.fillStyle = "#2a2a2a";
