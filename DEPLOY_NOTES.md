@@ -1,6 +1,24 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-31)
+**Both fixes below are confirmed live**: three commits
+(51afb51/9fb90ec/1d3627a) each verified via their own diff pages, a READY
+Vercel deployment (dpl_2K6ex3rnX4QjEof7sV7WsA6Hrxk5) matching the last of
+them, and a live in-browser check -- the tank's vehicle-select card shows
+the new hovercraft copy, and picking the tank in-game and moving the mouse
+showed the turret visibly swivel to track the cursor independently of the
+hull (twin-stick aim still working after the movement change). No console
+errors from the game's own code (only the same unrelated github.com
+extension-connection error noted in past entries). The hovercraft
+*movement* itself and the gamepad-mute behavior couldn't be exercised live
+in this automation browser -- synthetic held-key events don't sustain
+across frames the way a real keypress does, and there's no physical
+controller to plug into it -- so the dedicated `test/sim.mjs` coverage
+added this session (section 11c for hovercraft movement + the bump-recovery
+regression guard, section 12 for gamepad-mute) is the authoritative check
+for those two, consistent with this same limitation noted for past
+hard-to-screenshot mechanics (aim-and-fire, missile arcs).
+
 Follow-up user feedback on twin-stick aiming (see the entry directly below):
 **(1)** the mouse's resting cursor position was fighting the right stick
 whenever a gamepad was connected, and **(2)** the tank's driving felt wrong
