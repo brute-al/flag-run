@@ -727,6 +727,69 @@ console.log("\n=== Heli twin-stick aim + held-missile weapon swap ===");
   check("a missile was fired instead", game.bullets.some((b) => b.damage === game.vehicle.weapon2.damage));
 }
 
+// --- 11c. Tank hovercraft (omnidirectional) movement ------------------------
+// Follow-up user feedback: once the turret aims independently (section 11
+// above), the old "turn the hull, then thrust along it" driving felt
+// disconnected from twin-stick aim. Fix: the tank's own stick/WASD input
+// now sets an absolute movement direction directly, regardless of which way
+// the hull happens to be facing -- true hovercraft movement, not car-style
+// steering. Only the *player's* tank drives this way (see game.js's
+// `omni: this.vehicle.type === "tank"`); the duel-mode AI opponent's tank
+// still drives the old turn-to-face way, since aiDriver.js's pursuit
+// steering assumes that model and never sets `omni`.
+console.log("\n=== Tank hovercraft (omnidirectional) movement ===");
+{
+  console.log("[stick input moves the tank in an absolute direction, ignoring hull facing]");
+  const tank = new Vehicle(0, 0, 0, "tank");
+  tank.heading = Math.PI; // hull facing "west" (-x)
+  tank.vx = 0;
+  tank.vy = 0;
+  tank.update(dt, { throttle: 0, turn: 1, omni: true }); // stick pushed "east"
+  check("the tank accelerated east (+x) despite its hull facing west", tank.vx > 0);
+
+  console.log("[the hull is purely cosmetic: it slews to face the travel direction over time]");
+  // Starting heading (west, PI) is the travel direction's exact antipode, so
+  // the slew has a full ~PI radians to cover at the tank's turnRate -- give
+  // it enough frames to actually get there rather than just start turning.
+  for (let i = 0; i < 150; i++) tank.update(dt, { throttle: 0, turn: 1, omni: true });
+  check("sustained eastward thrust actually built up real speed", tank.vx > 150);
+  check(
+    "the hull eventually turned to visually face the direction it's actually traveling",
+    Math.abs(tank.heading) < 0.1
+  );
+
+  console.log("[a sideways bump doesn't permanently deflect it off the direction you're holding]");
+  // Regression guard for the ramming-into-a-building bug this same feature
+  // caused: arena.js's obstacle-collision response can kick a chunk of
+  // velocity in sideways, and a pure "add thrust in the held direction"
+  // model has nothing that fights a *perpendicular* velocity component --
+  // it would just keep drifting off at the new angle forever. `grip` (the
+  // same stat that used to tame lateral drift under the old car-physics
+  // model) should pull that perpendicular component back down while the
+  // stick keeps being held in one direction.
+  const bumped = new Vehicle(0, 0, 0, "tank");
+  bumped.heading = 0;
+  bumped.vx = 100;
+  bumped.vy = 100; // a hard sideways kick, as if just bounced off an obstacle
+  for (let i = 0; i < 60; i++) bumped.update(dt, { throttle: 0, turn: 1, omni: true }); // held "east" throughout
+  check("the perpendicular (sideways) velocity bled off while the stick was held", Math.abs(bumped.vy) < 20);
+  check("the held (eastward) direction kept building speed", bumped.vx > 100);
+
+  console.log("[omni movement is opt-in per-vehicle -- Game only sets it for the player's own tank]");
+  const jeepInput = makeInput();
+  const jeepGame = new Game(jeepInput, { useRealMap: false });
+  jeepGame.chooseVehicle("jeep");
+  jeepGame.vehicle.heading = Math.PI;
+  jeepGame.vehicle.vx = 0;
+  jeepGame.vehicle.vy = 0;
+  jeepInput.set({ throttle: 0, turn: 1 });
+  jeepGame.update(dt);
+  check(
+    "the jeep (not the tank) still steers the old car-style way -- turn alone doesn't thrust it sideways",
+    Math.abs(jeepGame.vehicle.vx) < 1 && Math.abs(jeepGame.vehicle.vy) < 1
+  );
+}
+
 // --- 12. Gamepad input merges with keyboard without needing one connected -
 console.log("\n=== Gamepad input (no controller connected) ===");
 {
@@ -752,6 +815,30 @@ console.log("\n=== Gamepad input (no controller connected) ===");
   const combinedAim = combined.getAim({ vehicleX: 0, vehicleY: 0, cameraX: 0, cameraY: 0, canvasW: 800, canvasH: 600 });
   check("aim angle comes from the keyboard/mouse", combinedAim.angle === Math.PI / 3);
   check("aim is active (mouse held)", combinedAim.active === true);
+
+  // Once a controller has been touched, it should own aim/fire exclusively
+  // -- the mouse's cursor is always sitting *somewhere*, so if it stayed in
+  // the mix it would fight the right stick the instant the stick recenters.
+  // `pad.index` is set directly here (rather than actually firing a browser
+  // `gamepadconnected` event, which this headless env has no window to
+  // dispatch) since that's the exact same flag `isConnected()` checks --
+  // this is "a controller is connected" from CombinedInput's point of view,
+  // full stop, regardless of what its axes currently read.
+  console.log("[a connected gamepad mutes the mouse/keyboard entirely, even mid-input]");
+  pad.index = 0;
+  const mutedAim = combined.getAim({ vehicleX: 0, vehicleY: 0, cameraX: 0, cameraY: 0, canvasW: 800, canvasH: 600 });
+  check(
+    "aim no longer comes from the keyboard/mouse once a gamepad is connected",
+    mutedAim.angle !== Math.PI / 3
+  );
+  check(
+    "isFiring ignores the (still-held) keyboard fire once a gamepad is connected",
+    combined.isFiring() === false
+  );
+  check(
+    "isFiring2 ignores the keyboard once a gamepad is connected",
+    combined.isFiring2() === false
+  );
 }
 
 // --- 13. Helicopter: stick strafes, rotate input spins it in place --------
@@ -1011,8 +1098,12 @@ function makeSyntheticBuilding(x, y, radius = 30, health = 55) {
   game.arena.obstacles = [target];
 
   console.log("[tank ramming]");
-  // Already in contact, already moving fast toward it (heading 0 == +x, same
-  // direction as the building), so the very first update can register a hit.
+  // Already in contact, already moving fast toward it (+x, same direction
+  // as the building), so the very first update can register a hit. The
+  // player's tank now drives hovercraft-style (see game.js's `omni` flag
+  // and Vehicle.update): `turn` is the raw horizontal thrust axis, not a
+  // steering input, so `turn: 1` (not `throttle`) is what keeps it pushing
+  // in +x, toward the building.
   game.vehicle.x = target.x - (target.radius + game.vehicle.radius);
   game.vehicle.y = target.y;
   game.vehicle.heading = 0;
@@ -1020,7 +1111,7 @@ function makeSyntheticBuilding(x, y, radius = 30, health = 55) {
   game.vehicle.vy = 0;
 
   const startHealth = target.health;
-  input.set({ throttle: 1, turn: 0 });
+  input.set({ throttle: 0, turn: 1 });
   for (let i = 0; i < 400 && !target.destroyed; i++) game.update(dt);
 
   check("ramming a building at speed damages it", target.health < startHealth || target.destroyed);
