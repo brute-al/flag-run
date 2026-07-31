@@ -11,6 +11,14 @@ import { AIDriver } from "./aiDriver.js";
 
 const RESPAWN_DELAY = 1.6;
 
+// Milestone 3 (duel mode): how long the AI opponent spends in its
+// aggressive "hunt" mode -- driving toward and fighting the player as a
+// tank -- before it breaks off and attempts an actual flag run instead. See
+// _updateAiMode() below. Keeps the AI feeling like a real opponent that
+// splits its attention between offense and the actual win condition,
+// instead of being purely a rusher or purely a flag-runner the whole match.
+const AI_HUNT_DURATION = 30;
+
 // How long a picked-up powerup buff lasts, in seconds.
 const POWERUP_DURATION = 15;
 
@@ -47,9 +55,21 @@ export class Game {
   // toward the player's own flag along the real road network (milestone 1).
   // Milestone 2 arms it: the AI drives a tank, fires its cannon at the player
   // when in range, and can itself be damaged/destroyed and respawn -- see
-  // _setupDuel/_spawnAI and the AI weapon block in update(). Still not here:
-  // the AI can't pick up the player's flag, and there's no win/loss condition
-  // tied to any of this yet.
+  // _setupDuel/_spawnAI and the AI weapon block in update(). Milestone 3
+  // (the final one) makes it a real, winnable match: the AI now actually
+  // splits its attention via a small state machine (_updateAiMode) -- it
+  // hunts/fights as a tank for a while (AI_HUNT_DURATION), then breaks off,
+  // drives home, swaps into an unarmed jeep at its own base (exactly the
+  // rule the player follows via switchVehicle -- see _spawnAiJeep), and
+  // makes an actual run at the player's own flag (`playerFlag`). Whoever
+  // delivers the *other* side's flag to their own base first wins -- for
+  // either side, combat alone (however lopsided) never ends the round on
+  // its own, only an actual flag delivery does.
+  //
+  // Not part of this: a "smarter" AI that reacts to threats mid-flag-run
+  // (aborts a jeep run if the player is closing in, retreats when low
+  // health, etc.) -- it commits to hunt/flag-run in fixed phases and only
+  // reacts to actually dying, not to danger. See DEPLOY_NOTES.md.
   constructor(input, { useRealMap = true, duel = false } = {}) {
     this.input = input;
     this.useRealMap = useRealMap;
@@ -133,16 +153,18 @@ export class Game {
       this.aiDriver = null;
       this.aiHealth = 0;
       this.aiRespawnTimer = 0;
+      this.aiMode = null;
+      this.aiModeTimer = 0;
     }
 
     this.events.push("roundReset");
   }
 
-  // Sets up the experimental AI opponent for a whole new round: the player's
-  // own flag (its target, sitting undefended at playerBase for now -- not
-  // pickup-able by the AI yet, see the class-level comment above) and its own
-  // AIDriver instance, then defers the vehicle/route setup to _spawnAI() so
-  // the exact same logic can be reused for mid-round respawns.
+  // Sets up the AI opponent for a whole new round: the player's own flag
+  // (its actual target now, once it swaps into a jeep -- see _spawnAiJeep
+  // and _updateAiMode) and its own AIDriver instance, then defers the
+  // vehicle/route setup to _spawnAI() so the exact same logic can be reused
+  // for mid-round respawns.
   _setupDuel() {
     this.playerFlag = new Flag(this.arena.playerBase.x, this.arena.playerBase.y);
     this.aiDriver = new AIDriver();
@@ -153,17 +175,79 @@ export class Game {
   // (Re)spawns the AI opponent at its base with full health and a fresh
   // route toward the player's flag -- used both at round start (_setupDuel)
   // and after the AI's vehicle is destroyed (see the death handling in
-  // update()). Milestone 2: the AI now drives an armed tank instead of
-  // milestone 1's unarmed jeep, so it can actually fight back while pathing
-  // toward the flag (see aiDriver.js's _computeCombat).
+  // update()). Always spawns the armed tank (never the jeep, even if it was
+  // destroyed mid-flag-run) and resets it into "hunt" mode -- see
+  // AI_HUNT_DURATION/_updateAiMode -- so every death naturally bounces the
+  // AI back to attacking for a while before it tries another flag run.
   _spawnAI() {
     const base = this.arena.enemyBase; // the far/mirrored base is the AI's home
     // Face north (into the arena, toward the player) -- the mirror image of
     // _spawnVehicleAtBase's "spawn south of playerBase, facing south" setup.
     this.aiVehicle = new Vehicle(base.x, base.y - 40, -Math.PI / 2, "tank");
     this.aiHealth = this.aiVehicle.maxHealth;
+    this.aiMode = "hunt";
+    this.aiModeTimer = AI_HUNT_DURATION;
     const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.playerFlag.x, this.playerFlag.y);
     this.aiDriver.setRoute(route);
+  }
+
+  // Milestone 3: swaps the AI out of its tank and into an unarmed jeep at
+  // its own base -- the same rule the player follows via switchVehicle(),
+  // just driven by the AI's own decision (_updateAiMode) instead of the
+  // base-swap UI. Resets aiHealth to the jeep's own (much lower) max, same
+  // as a real vehicle swap would.
+  _spawnAiJeep() {
+    const base = this.arena.enemyBase;
+    this.aiVehicle = new Vehicle(base.x, base.y - 40, -Math.PI / 2, "jeep");
+    this.aiHealth = this.aiVehicle.maxHealth;
+    this.aiMode = "flagRun";
+    const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.playerFlag.x, this.playerFlag.y);
+    this.aiDriver.setRoute(route);
+  }
+
+  // Milestone 3's actual decision-making layer, sitting above aiDriver.js's
+  // "dumb" route-following -- aiDriver only ever knows how to chase
+  // whatever route/target it's currently been handed, so this is what
+  // decides *what* that should be and when to swap the AI between its two
+  // personas: an armed tank that hunts/fights, and an unarmed jeep making an
+  // actual run at the player's flag, the only way either side can win.
+  // Called once per frame (see update()) whenever the AI isn't mid-respawn.
+  _updateAiMode(dt) {
+    if (this.aiMode === "hunt") {
+      this.aiModeTimer -= dt;
+      if (this.aiModeTimer <= 0) {
+        this.aiMode = "returnToBase";
+        const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.arena.enemyBase.x, this.arena.enemyBase.y);
+        this.aiDriver.setRoute(route);
+      }
+    } else if (this.aiMode === "returnToBase") {
+      // Still a tank here, and still fights back the whole way home (see
+      // the unconditional AI weapon-firing block below this call in
+      // update()) -- retreating to swap isn't the same as surrendering.
+      if (this.aiDriver.reachedEnd) {
+        this._spawnAiJeep();
+      }
+    } else if (this.aiMode === "flagRun") {
+      if (!this.playerFlag.carrier) {
+        const d = Math.hypot(this.aiVehicle.x - this.playerFlag.x, this.aiVehicle.y - this.playerFlag.y);
+        if (d < this.aiVehicle.radius + this.playerFlag.radius + 6) {
+          this.playerFlag.carrier = this.aiVehicle;
+          this.aiVehicle.carrying = this.playerFlag;
+          this.playerFlag.capturedByPlayer = true;
+          this.events.push("aiFlagPickup");
+          this.aiMode = "deliver";
+          const route = findRoute(this.arena.roads, this.aiVehicle.x, this.aiVehicle.y, this.arena.enemyBase.x, this.arena.enemyBase.y);
+          this.aiDriver.setRoute(route);
+        }
+      }
+    } else if (this.aiMode === "deliver") {
+      const dHome = Math.hypot(this.aiVehicle.x - this.arena.enemyBase.x, this.aiVehicle.y - this.arena.enemyBase.y);
+      if (dHome < this.arena.enemyBase.radius) {
+        this.state = "lost";
+        this.message = "THE ENEMY GOT YOUR FLAG HOME — ROUND LOST — press R to try again";
+        this.events.push("aiFlagCapture");
+      }
+    }
   }
 
   // Spreads turrets along the whole route from your base to theirs (instead
@@ -270,6 +354,16 @@ export class Game {
       this.events.push("vehicleDestroyed");
       this.particles.fieryExplosion(this.aiVehicle.x, this.aiVehicle.y, 1.6);
       this.camera.shake(10, 0.35);
+      // Milestone 3: dying mid-flag-run (an unarmed jeep is an easy kill)
+      // drops the flag right where it fell, exactly like the player's own
+      // jeep going down mid-carry -- it just sits there until the AI's next
+      // flag-run attempt (after respawning and hunting again for a while,
+      // see _spawnAI) routes to wherever it actually is now.
+      if (this.aiVehicle.carrying) {
+        this.playerFlag.dropAt(this.aiVehicle.x, this.aiVehicle.y);
+        this.aiVehicle.carrying = null;
+        this.events.push("aiFlagDropped");
+      }
       this.aiRespawnTimer = RESPAWN_DELAY;
     }
   }
@@ -406,6 +500,11 @@ export class Game {
           this._spawnAI();
         }
       } else {
+        // Milestone 3: decides what the AI is actually trying to do this
+        // frame (hunt/return-to-base/flag-run/deliver) and updates its
+        // route/vehicle-type accordingly *before* aiDriver follows it --
+        // aiDriver itself stays exactly as "dumb" as milestone 1/2 left it.
+        this._updateAiMode(dt);
         this.aiDriver.update(this.aiVehicle, dt, this.vehicle);
         this.aiVehicle.update(dt, this.aiDriver.getVector());
         this.arena.clampToBounds(this.aiVehicle);
@@ -521,6 +620,11 @@ export class Game {
 
     // Flag pickup / carry / capture — only the jeep can carry it.
     this.flag.update();
+    // Milestone 3: the player's own flag is now a live target too, once the
+    // AI opponent swaps into a jeep and comes for it (see _updateAiMode) --
+    // keep its position glued to whoever's carrying it every frame,
+    // regardless of which AI mode is currently active.
+    if (this.duel && this.playerFlag) this.playerFlag.update();
     if (!this.flag.carrier && this.vehicle.canCarryFlag) {
       const d = Math.hypot(this.vehicle.x - this.flag.x, this.vehicle.y - this.flag.y);
       if (d < this.vehicle.radius + this.flag.radius + 6) {
@@ -779,6 +883,19 @@ export class Game {
         : this.flag.capturedByPlayer
         ? "FLAG: dropped in the field"
         : "FLAG: at enemy base",
+      // Milestone 3: null outside duel mode (nothing to show -- there's no
+      // AI that could ever come for your own flag), otherwise mirrors
+      // flagStatus's three states from your own flag's point of view, so
+      // you actually get a warning once the AI is out there with it instead
+      // of only finding out when you've already lost.
+      playerFlagStatus:
+        this.duel && this.playerFlag
+          ? this.playerFlag.carrier
+            ? "YOUR FLAG: taken by the enemy!"
+            : this.playerFlag.capturedByPlayer
+            ? "YOUR FLAG: dropped in the field"
+            : "YOUR FLAG: safe at your base"
+          : null,
       message: this.message,
       state: this.state,
       lives,

@@ -168,6 +168,16 @@ export class SoundEngine {
       case "flagCapture":
         this._playFanfare();
         break;
+      // Milestone 3: the AI opponent grabbing your own flag is a threat
+      // cue, not a reward -- deliberately reuses the same "taking damage"
+      // thud rather than the celebratory pickup chime above, since nothing
+      // good just happened to you. Its delivering the flag home (round
+      // lost) and dropping it mid-run get no dedicated sound, same as the
+      // existing "out of vehicles" loss condition -- the HUD/message text
+      // already carries those moments.
+      case "aiFlagPickup":
+        this._playHit();
+        break;
       case "playerFireCannon":
         this._playCannonShot();
         break;

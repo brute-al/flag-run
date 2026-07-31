@@ -10,6 +10,11 @@ export class Flag {
     this.y = y;
     this.radius = 16;
     this.carrier = null; // vehicle reference while held
+    // Name predates duel mode's symmetric second flag (game.js's
+    // `playerFlag`) -- despite the name, it's just "has this flag ever left
+    // home," used by both flags to tell "still at base" apart from
+    // "dropped somewhere in the field" once whoever's carrying it (the
+    // player, or the AI opponent) puts it down without delivering it.
     this.capturedByPlayer = false;
   }
 

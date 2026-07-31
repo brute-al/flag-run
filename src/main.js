@@ -10,6 +10,7 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const healthBar = document.getElementById("healthBar");
 const flagStatusEl = document.getElementById("flagStatus");
+const playerFlagStatusEl = document.getElementById("playerFlagStatus");
 const messageEl = document.getElementById("message");
 const statusLineEl = document.getElementById("statusLine");
 const powerupStatusEl = document.getElementById("powerupStatus");
@@ -130,6 +131,15 @@ function loop(now) {
   const hud = game.getHudState();
   healthBar.style.width = `${hud.healthPct * 100}%`;
   flagStatusEl.textContent = hud.flagStatus;
+  // Duel mode only (see game.js's getHudState) -- lets the player actually
+  // notice the AI opponent is out there with their flag instead of only
+  // finding out once the round is already lost.
+  if (hud.playerFlagStatus) {
+    playerFlagStatusEl.textContent = hud.playerFlagStatus;
+    playerFlagStatusEl.classList.remove("hidden");
+  } else {
+    playerFlagStatusEl.classList.add("hidden");
+  }
   messageEl.textContent = hud.message;
 
   // Every vehicle type has its own finite life pool now (see game.js), so
