@@ -1,6 +1,21 @@
 # Deploy notes (read this before redeploying)
 
 ## NEXT UP — where we left off (2026-07-31, later same day)
+**Both follow-ups below are confirmed live**: three commits
+(79232a2/8869b95/93a7788), a READY Vercel deployment
+(dpl_DADxWVPeZVzsTY9ckMNPr2oLXRiN) matching the last of them, and a live
+check -- the jeep's vehicle-select card shows the new hovercraft copy, and
+(since holding a key down doesn't survive across frames in this automation
+browser, same limitation noted in the entry below) the turret visual change
+was verified by dynamically importing `entities.js` in the live page's own
+console and drawing one of each turret type straight to a throwaway canvas:
+side by side, the regular turret is a round brown/red bunker and the tall
+one is unmistakably a square steel-blue tower with its amber "▲" marker and
+raised support pole -- exactly the "square instead of circle, different
+color" ask. The jeep's actual hovercraft movement still relies on
+`test/sim.mjs` (section 11c) as the authoritative check for the same
+held-key reason as the tank's version.
+
 Two more small follow-ups from the user after trying the hovercraft tank +
 gamepad-mute fixes (see the entry directly below): the jeep's driving now
 felt like a holdover from the old design once the tank went hovercraft, and
