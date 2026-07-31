@@ -1426,6 +1426,14 @@ console.log("\n=== Duel mode: wired into a real Game ===");
   );
 
   console.log("[AI actually drives toward the player's flag over time]");
+  // Milestone 3 added a timer (AI_HUNT_DURATION) that breaks the AI off of
+  // hunting into an actual flag-run attempt -- which starts by heading
+  // *away* from the player's flag, back to the AI's own base, before
+  // circling around to it as a jeep (see game.js's _updateAiMode). Pinned
+  // here so this specifically tests milestone 1's baseline navigation (one
+  // long, uninterrupted hunt), not milestone 3's mode-switching, which gets
+  // its own dedicated coverage further below.
+  game.aiModeTimer = Infinity;
   const startDist = Math.hypot(game.aiVehicle.x - game.playerFlag.x, game.aiVehicle.y - game.playerFlag.y);
   for (let i = 0; i < 60 * 90; i++) game.update(dt); // 90 sim-seconds -- a generous budget for the long mirrored route
   const endDist = Math.hypot(game.aiVehicle.x - game.playerFlag.x, game.aiVehicle.y - game.playerFlag.y);
@@ -1652,6 +1660,124 @@ console.log("\n=== Single-player mode: turrets always target the player (no terr
   }
   check("turret fired at the player as usual outside duel mode", sawFire);
   check("its bullet still targets the player (no territoriality outside duel mode)", bulletTargetsPlayer === true);
+}
+
+// --- 22. Duel mode (milestone 3): AI flag-run, delivery, and the win/loss --
+// The final piece of duel mode: the AI opponent now actually splits its
+// attention (see game.js's _updateAiMode) instead of hunting forever --
+// after AI_HUNT_DURATION it breaks off, drives home, swaps into an unarmed
+// jeep, and makes a real run at the player's own flag (`playerFlag`).
+// Whichever side actually delivers the *other* flag home wins/loses the
+// round; combat alone never does, for either side. As with the territorial
+// turret tests above, positions/timers are set directly throughout (rather
+// than waiting out real pathfinding, already proven in section 19) so each
+// state transition can be exercised in isolation and deterministically.
+console.log("\n=== Duel mode (milestone 3): AI mode transitions (hunt -> returnToBase -> flagRun -> deliver) ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank");
+
+  console.log("[starts hunting, as an armed tank]");
+  check("AI starts in hunt mode", game.aiMode === "hunt");
+  check("AI starts as a tank", game.aiVehicle.type === "tank");
+
+  console.log("[hunt mode times out into returnToBase]");
+  game.aiModeTimer = 0.001;
+  game.update(dt);
+  check("AI switched to returnToBase", game.aiMode === "returnToBase");
+  check("AI is still a tank while retreating to swap", game.aiVehicle.type === "tank");
+
+  console.log("[arriving home swaps it into an unarmed jeep and starts a flag run]");
+  game.aiVehicle.x = game.arena.enemyBase.x;
+  game.aiVehicle.y = game.arena.enemyBase.y;
+  game.aiDriver.setRoute([]); // empty route -- reachedEnd, i.e. "arrived home"
+  game.update(dt);
+  check("AI switched to flagRun", game.aiMode === "flagRun");
+  check("AI swapped into a jeep", game.aiVehicle.type === "jeep");
+  check("AI's jeep spawned at its own full (jeep) health", game.aiHealth === game.aiVehicle.maxHealth);
+
+  console.log("[reaching the player's flag picks it up and starts delivering it home]");
+  game.aiVehicle.x = game.playerFlag.x;
+  game.aiVehicle.y = game.playerFlag.y;
+  game.drainEvents(); // clear anything queued so far
+  game.update(dt);
+  check("the AI picked up the player's flag", game.playerFlag.carrier === game.aiVehicle);
+  check("the jeep is marked as carrying it", game.aiVehicle.carrying === game.playerFlag);
+  check("AI switched to deliver", game.aiMode === "deliver");
+  check("an aiFlagPickup event fired", game.drainEvents().includes("aiFlagPickup"));
+
+  console.log("[delivering it home ends the round -- the player loses]");
+  game.aiVehicle.x = game.arena.enemyBase.x;
+  game.aiVehicle.y = game.arena.enemyBase.y;
+  game.update(dt);
+  check("the round is lost once the AI delivers your flag home", game.state === "lost");
+  check("an aiFlagCapture event fired", game.drainEvents().includes("aiFlagCapture"));
+  check("the loss message mentions the flag", game.message.toLowerCase().includes("flag"));
+
+  console.log("[the round is actually frozen now]");
+  const stateBefore = game.state;
+  const aiXBefore = game.aiVehicle.x;
+  game.update(dt);
+  check("update() is a no-op once the round is lost", game.state === stateBefore && game.aiVehicle.x === aiXBefore);
+}
+
+console.log("\n=== Duel mode (milestone 3): dying mid-flag-run drops the flag; combat alone never ends the round ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank");
+
+  // Fast-forward directly into flagRun mode, carrying the flag -- the same
+  // deterministic setup as the section above.
+  game.aiModeTimer = 0.001;
+  game.update(dt);
+  game.aiVehicle.x = game.arena.enemyBase.x;
+  game.aiVehicle.y = game.arena.enemyBase.y;
+  game.aiDriver.setRoute([]);
+  game.update(dt);
+  game.aiVehicle.x = game.playerFlag.x;
+  game.aiVehicle.y = game.playerFlag.y;
+  game.update(dt);
+  check("test setup: AI is carrying the player's flag", game.aiVehicle.carrying === game.playerFlag);
+
+  console.log("[destroying the flag-carrying jeep drops the flag where it fell]");
+  const deathX = game.aiVehicle.x;
+  const deathY = game.aiVehicle.y;
+  game.drainEvents();
+  game._damageAI({ damage: 999 }, "#8fe3ff");
+  check("the AI's jeep was destroyed", game.aiHealth === 0);
+  check("the flag was dropped, not still carried", game.playerFlag.carrier === null);
+  check("the flag landed where the jeep died", game.playerFlag.x === deathX && game.playerFlag.y === deathY);
+  check("an aiFlagDropped event fired", game.drainEvents().includes("aiFlagDropped"));
+  check("losing the jeep doesn't end the round -- only an actual delivery does", game.state === "playing");
+
+  console.log("[the AI respawns as a tank, back in hunt mode]");
+  for (let i = 0; i < 200 && game.aiRespawnTimer > 0; i++) game.update(dt);
+  check("AI respawn timer cleared", game.aiRespawnTimer <= 0);
+  check("AI respawned as a tank", game.aiVehicle.type === "tank");
+  check("AI reset back into hunt mode", game.aiMode === "hunt");
+}
+
+console.log("\n=== Duel mode (milestone 3): HUD reflects the player's own flag status ===");
+{
+  const input = makeInput();
+  const game = new Game(input, { duel: true });
+  game.chooseVehicle("tank");
+
+  check("HUD shows the player's flag safe at base by default", game.getHudState().playerFlagStatus === "YOUR FLAG: safe at your base");
+
+  game.playerFlag.carrier = game.aiVehicle;
+  check("HUD warns once the AI is carrying it", game.getHudState().playerFlagStatus === "YOUR FLAG: taken by the enemy!");
+
+  game.playerFlag.carrier = null;
+  game.playerFlag.capturedByPlayer = true;
+  check("HUD shows it dropped in the field once it's left home at least once", game.getHudState().playerFlagStatus === "YOUR FLAG: dropped in the field");
+
+  console.log("[outside duel mode, there's nothing to show]");
+  const solo = new Game(makeInput());
+  solo.chooseVehicle("jeep");
+  check("no playerFlagStatus in single-player mode", solo.getHudState().playerFlagStatus === null);
 }
 
 console.log(allPass ? "\nALL PASS" : "\nSOME CHECKS FAILED");
