@@ -83,7 +83,14 @@ export class Arena {
       // mid-run, without being free.
       const maxHealth = 55;
       const paletteIndex = Math.abs(Math.round(cx * 13 + cy * 7)) % BUILDING_PALETTE.length;
-      return { x: cx, y: cy, radius, facets, destructible: true, health: maxHealth, maxHealth, destroyed: false, paletteIndex };
+      // Cosmetic-only "how tall this building looks" cue for the oblique
+      // camera (see _drawBuilding's extrusion) -- tied to the footprint's own
+      // radius (bigger buildings read as taller) rather than pure randomness,
+      // so it stays deterministic across rounds and never disagrees with a
+      // building's own visible footprint size. Purely a draw-time offset; the
+      // real collision polygon (`facets`) is completely unaffected.
+      const height = Math.min(34, 14 + radius * 0.35);
+      return { x: cx, y: cy, radius, facets, destructible: true, health: maxHealth, maxHealth, destroyed: false, paletteIndex, height };
     });
   }
 
@@ -128,7 +135,11 @@ export class Arena {
       );
 
       if (farFromBases && notOverlapping) {
-        obstacles.push({ x, y, radius, facets: makeFacetedShape(radius) });
+        // Rocks are ground-hugging boulders, not structures -- a much
+        // smaller height cue than buildings get (see _buildingsToObstacles),
+        // just enough for a soft contact shadow under the oblique camera.
+        const height = 6 + radius * 0.08;
+        obstacles.push({ x, y, radius, facets: makeFacetedShape(radius), height });
       }
     }
     return obstacles;
@@ -243,7 +254,16 @@ export class Arena {
     }
   }
 
-  draw(ctx, camera, canvasW, canvasH) {
+  // Ground-plane-only pass: fill, dirt patches, grid/roads, world bounds,
+  // and the two bases. None of this has any "height" (see the oblique-camera
+  // work in _drawBuilding/entities.js's Turret/vehicleArt.js's drawVehicle),
+  // so unlike obstacles it never needs to be depth-sorted against anything
+  // else -- it's always safe to draw first, underneath everything. Split out
+  // from the old single draw() so game.js can interleave obstacles into one
+  // combined depth-sorted pass with turrets/vehicles/flags/bullets instead of
+  // every obstacle always drawing before every other entity regardless of
+  // which is actually closer to the camera.
+  drawBackground(ctx, camera, canvasW, canvasH) {
     // Flat, posterized ground fill (no gradients — flat color is the toon look).
     ctx.fillStyle = "#38492b";
     ctx.fillRect(0, 0, canvasW, canvasH);
@@ -319,25 +339,49 @@ export class Arena {
     // Bases.
     this._drawBase(ctx, camera, canvasW, canvasH, this.playerBase, "#4fa8e0", "YOUR BASE");
     this._drawBase(ctx, camera, canvasW, canvasH, this.enemyBase, "#d1483f", "ENEMY BASE");
+  }
 
-    // Obstacles: hand-cut-looking procedural rocks, or actual building
-    // footprints on a real map. Buildings get a small pseudo-3D extrusion
-    // (a "wall" face offset below/right of the roof) plus a varied color
-    // palette and simple windows so they read as buildings, not gravel.
-    for (const o of this.obstacles) {
-      const s = camera.worldToScreen(o.x, o.y, canvasW, canvasH);
-      if (s.x < -o.radius - 20 || s.x > canvasW + o.radius + 20 || s.y < -o.radius - 20 || s.y > canvasH + o.radius + 20)
-        continue;
+  // Culls + draws a single obstacle (hand-cut-looking procedural rock, or an
+  // actual building footprint on a real map). Buildings get a pseudo-3D
+  // extrusion (a "wall" face offset below/right of the roof, scaled by the
+  // building's own height -- see _buildingsToObstacles) plus a varied color
+  // palette and simple windows so they read as buildings, not gravel. Split
+  // out from the old draw() loop so game.js can call this per-obstacle while
+  // interleaving obstacles into its combined depth-sorted draw pass (see
+  // drawBackground's own comment for why that matters now that height is
+  // significant enough for draw order to actually be visible).
+  drawObstacle(ctx, camera, canvasW, canvasH, o) {
+    const s = camera.worldToScreen(o.x, o.y, canvasW, canvasH);
+    if (s.x < -o.radius - 20 || s.x > canvasW + o.radius + 20 || s.y < -o.radius - 20 || s.y > canvasH + o.radius + 20)
+      return;
 
-      if (this.isRealWorld) {
-        this._drawBuilding(ctx, s, o);
-      } else {
-        this._drawRock(ctx, s, o);
-      }
+    if (this.isRealWorld) {
+      this._drawBuilding(ctx, s, o);
+    } else {
+      this._drawRock(ctx, s, o);
     }
   }
 
+  // Legacy convenience wrapper (background + every obstacle, in array order,
+  // no depth sorting) -- game.js no longer calls this directly (see
+  // drawObstacle's comment), but it's kept for anything that just wants "the
+  // whole arena drawn" on its own, e.g. a standalone map preview.
+  draw(ctx, camera, canvasW, canvasH) {
+    this.drawBackground(ctx, camera, canvasW, canvasH);
+    for (const o of this.obstacles) this.drawObstacle(ctx, camera, canvasW, canvasH, o);
+  }
+
   _drawRock(ctx, s, o) {
+    // Small ground-contact shadow, offset by the rock's own (much smaller
+    // than a building's) height cue -- see _generateObstacles.
+    const lift = o.height || 0;
+    if (lift > 0) {
+      ctx.fillStyle = "rgba(0,0,0,0.16)";
+      ctx.beginPath();
+      ctx.ellipse(s.x + lift * 0.6, s.y + lift * 0.9, o.radius * 0.7, o.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.beginPath();
     o.facets.forEach((p, i) => {
       const px = s.x + p.x;
@@ -371,7 +415,14 @@ export class Arena {
     }
 
     const colors = BUILDING_PALETTE[o.paletteIndex] || BUILDING_PALETTE[0];
-    const extrude = { x: 5, y: 7 }; // down-right offset, a cheap pseudo-3D wall
+    // Down-right offset, a cheap pseudo-3D wall -- scaled by the building's
+    // own height (see _buildingsToObstacles) instead of a flat 5,7px for
+    // every building regardless of size, so bigger buildings actually read
+    // as taller under the oblique camera rather than all looking the same
+    // one-story height. Direction/ratio kept the same as the original fixed
+    // offset (down more than right).
+    const h = o.height || 14;
+    const extrude = { x: h * 0.3, y: h * 0.5 };
 
     const pathAt = (offset) => {
       ctx.beginPath();

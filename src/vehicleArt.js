@@ -30,7 +30,20 @@ function roundRectPath(ctx, x, y, w, h, r) {
 // `healthFrac` (0..1, defaults to full health) lets the player's own vehicle
 // redden the same way an enemy turret does as it takes damage -- the same
 // "angrier the more hurt it is" visual language used across the game.
-export function drawVehicle(ctx, screenX, screenY, vehicle, healthFrac = 1) {
+// `lift` (0 by default) draws the vehicle's body raised above its own ground
+// shadow, the same oblique-camera cue buildings/turrets use -- purely a
+// screen-space offset for the whole body+turret assembly, so it doesn't
+// touch `vehicle.x`/`vehicle.y` (still true ground position for physics,
+// collision, and aim math) or any of the rotation logic below.
+export function drawVehicle(ctx, screenX, screenY, vehicle, healthFrac = 1, lift = 0) {
+  if (lift > 0) {
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(screenX, screenY, 15, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const bodyY = screenY - lift;
+
   if (vehicle.hasTurret) {
     // Hull and turret are drawn as two separately-rotated layers sharing
     // the same origin: the hull spins with the vehicle's heading (driving
@@ -40,19 +53,19 @@ export function drawVehicle(ctx, screenX, screenY, vehicle, healthFrac = 1) {
     // on its own instead of needing a separate reticle to show where it's
     // pointed.
     ctx.save();
-    ctx.translate(screenX, screenY);
+    ctx.translate(screenX, bodyY);
     ctx.rotate(vehicle.heading);
     drawTankHull(ctx, healthFrac);
     ctx.restore();
 
     ctx.save();
-    ctx.translate(screenX, screenY);
+    ctx.translate(screenX, bodyY);
     ctx.rotate(vehicle.turretAngle);
     drawTankTurret(ctx, healthFrac);
     ctx.restore();
   } else {
     ctx.save();
-    ctx.translate(screenX, screenY);
+    ctx.translate(screenX, bodyY);
     ctx.rotate(vehicle.heading);
 
     if (vehicle.type === "heli") drawHeli(ctx, healthFrac);
@@ -66,7 +79,7 @@ export function drawVehicle(ctx, screenX, screenY, vehicle, healthFrac = 1) {
     ctx.strokeStyle = OUTLINE;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(screenX, screenY - 30, 7, 0, Math.PI * 2);
+    ctx.arc(screenX, bodyY - 30, 7, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }

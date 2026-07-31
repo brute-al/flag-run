@@ -11,6 +11,14 @@ import { AIDriver } from "./aiDriver.js";
 
 const RESPAWN_DELAY = 1.6;
 
+// Oblique-camera pass: how many pixels a vehicle's body renders above its own
+// ground shadow (see vehicleArt.js's drawVehicle) -- the same "stands up off
+// the ground plane" cue buildings and turrets get, just a smaller amount
+// since vehicles are meant to read as lower-profile than a building or a
+// turret tower. Purely a draw()-time offset -- vehicle.x/y stay true ground
+// position everywhere else (physics, collision, aim math).
+const VEHICLE_LIFT = 8;
+
 // Milestone 3 (duel mode): how long the AI opponent spends in its
 // aggressive "hunt" mode -- driving toward and fighting the player as a
 // tank -- before it breaks off and attempts an actual flag run instead. See
@@ -849,26 +857,72 @@ export class Game {
 
   draw(ctx, canvasW, canvasH) {
     if (this.state === "select") return; // HTML overlay covers the canvas
-    this.arena.draw(ctx, this.camera, canvasW, canvasH);
-    this.flag.draw(ctx, this.camera, canvasW, canvasH);
+
+    // Ground plane first -- fill, roads, world bounds, bases. Nothing here
+    // has height, so it's always safe underneath everything else (see
+    // Arena.drawBackground's own comment).
+    this.arena.drawBackground(ctx, this.camera, canvasW, canvasH);
+
+    // Oblique-camera pass: buildings/turrets/vehicles now draw with real
+    // height (see arena.js's building extrusion, entities.js's Turret lift,
+    // and vehicleArt.js's drawVehicle lift), so a tall object can visually
+    // extend into space that something further from the camera should be
+    // hidden behind -- or something closer should stand in front of. A
+    // fixed draw order (every building, then every turret, then every
+    // vehicle, regardless of actual position) got that wrong as soon as
+    // height became significant enough to notice. Instead, collect every
+    // "physical" thing in the scene with its true world y (bigger y = closer
+    // to the camera in this game's orientation -- see camera.js) and sort
+    // ascending, so closer things always draw on top of farther ones no
+    // matter which category they belong to.
+    const drawables = [];
+    for (const o of this.arena.obstacles) {
+      drawables.push({ y: o.y, draw: () => this.arena.drawObstacle(ctx, this.camera, canvasW, canvasH, o) });
+    }
+    drawables.push({ y: this.flag.y, draw: () => this.flag.draw(ctx, this.camera, canvasW, canvasH) });
     // Duel mode's second flag (the player's own, at their base -- the AI's
-    // target). Undefended and un-pickupable for now, see aiDriver.js.
-    if (this.duel && this.playerFlag) this.playerFlag.draw(ctx, this.camera, canvasW, canvasH);
-    for (const pickup of this.powerupPickups) pickup.draw(ctx, this.camera, canvasW, canvasH);
-    for (const turret of this.turrets) turret.draw(ctx, this.camera, canvasW, canvasH);
-    for (const bullet of this.bullets) bullet.draw(ctx, this.camera, canvasW, canvasH);
+    // target once it swaps into a jeep, see _updateAiMode).
+    if (this.duel && this.playerFlag) {
+      drawables.push({ y: this.playerFlag.y, draw: () => this.playerFlag.draw(ctx, this.camera, canvasW, canvasH) });
+    }
+    for (const pickup of this.powerupPickups) {
+      drawables.push({ y: pickup.y, draw: () => pickup.draw(ctx, this.camera, canvasW, canvasH) });
+    }
+    for (const turret of this.turrets) {
+      drawables.push({ y: turret.y, draw: () => turret.draw(ctx, this.camera, canvasW, canvasH) });
+    }
+    for (const bullet of this.bullets) {
+      drawables.push({ y: bullet.y, draw: () => bullet.draw(ctx, this.camera, canvasW, canvasH) });
+    }
     if (this.state !== "respawning") {
-      const s = this.camera.worldToScreen(this.vehicle.x, this.vehicle.y, canvasW, canvasH);
-      const healthFrac = Math.max(0, Math.min(1, this.health / this.vehicle.maxHealth));
-      drawVehicle(ctx, s.x, s.y, this.vehicle, healthFrac);
+      drawables.push({
+        y: this.vehicle.y,
+        draw: () => {
+          const s = this.camera.worldToScreen(this.vehicle.x, this.vehicle.y, canvasW, canvasH);
+          const healthFrac = Math.max(0, Math.min(1, this.health / this.vehicle.maxHealth));
+          drawVehicle(ctx, s.x, s.y, this.vehicle, healthFrac, VEHICLE_LIFT);
+        },
+      });
     }
     if (this.duel && this.aiVehicle && this.aiRespawnTimer <= 0) {
-      const s = this.camera.worldToScreen(this.aiVehicle.x, this.aiVehicle.y, canvasW, canvasH);
-      const aiHealthFrac = Math.max(0, Math.min(1, this.aiHealth / this.aiVehicle.maxHealth));
-      drawVehicle(ctx, s.x, s.y, this.aiVehicle, aiHealthFrac);
+      drawables.push({
+        y: this.aiVehicle.y,
+        draw: () => {
+          const s = this.camera.worldToScreen(this.aiVehicle.x, this.aiVehicle.y, canvasW, canvasH);
+          const aiHealthFrac = Math.max(0, Math.min(1, this.aiHealth / this.aiVehicle.maxHealth));
+          drawVehicle(ctx, s.x, s.y, this.aiVehicle, aiHealthFrac, VEHICLE_LIFT);
+        },
+      });
     }
+    drawables.sort((a, b) => a.y - b.y);
+    for (const d of drawables) d.draw();
+
     // Drawn last (and regardless of state) so an explosion/dust cloud from
     // the moment before a respawn keeps rendering on top of everything else.
+    // Kept out of the depth sort above -- particles are short-lived and
+    // purely decorative (see README), so always-on-top is a fine
+    // simplification that avoids giving every spark/explosion its own sort
+    // entry every frame.
     this.particles.draw(ctx, this.camera, canvasW, canvasH);
   }
 

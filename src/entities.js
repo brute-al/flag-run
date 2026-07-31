@@ -211,33 +211,40 @@ export class Turret {
 
   draw(ctx, camera, canvasW, canvasH) {
     const s = camera.worldToScreen(this.x, this.y, canvasW, canvasH);
-    // Tall turrets draw their gun head raised above their true ground
-    // position, on a braced support pole -- the visual cue that its shots
-    // clear rooftops instead of slamming into the nearest wall.
-    const lift = this.tall && !this.destroyed ? 34 : 0;
+    // Every turret draws its head raised above its true ground position, on
+    // a braced support pole -- the oblique camera's basic cue that anything
+    // with real height stands up off the ground plane instead of being a
+    // flat decal. Tall (rooftop-piercing) turrets stay dramatically more
+    // elevated than regular ones (34px vs. 12px) so that distinction --
+    // "this one's shots clear cover" -- still reads at a glance and isn't
+    // washed out now that regular turrets get a lift of their own.
+    const lift = this.destroyed ? 0 : this.tall ? 34 : 12;
     const hx = s.x;
     const hy = s.y - lift;
 
     if (lift > 0) {
       // Ground shadow at the true position, plus the support tower itself,
-      // tinted to match the tall turret's own steel-blue palette (see
-      // basePlateColor/bodyColor below) rather than the regular turret's
-      // brown, so the whole silhouette reads as "different thing" at a
-      // glance, not just the raised head.
+      // tinted to match this turret's own palette (steel-blue for tall,
+      // a neutral dark tone for regular) rather than a single hardcoded
+      // color, so the pole doesn't clash with whichever body color it's
+      // actually holding up.
+      const poleColor = this.tall ? "#22344a" : "#332920";
+      const poleColorDark = this.tall ? "#111c28" : "#1a140d";
+
       ctx.fillStyle = "rgba(0,0,0,0.28)";
       ctx.beginPath();
       ctx.ellipse(s.x, s.y + 4, 16, 6, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.strokeStyle = "#22344a";
-      ctx.lineWidth = 6;
+      ctx.strokeStyle = poleColor;
+      ctx.lineWidth = this.tall ? 6 : 4;
       ctx.beginPath();
       ctx.moveTo(s.x - 10, s.y);
       ctx.lineTo(hx - 5, hy);
       ctx.moveTo(s.x + 10, s.y);
       ctx.lineTo(hx + 5, hy);
       ctx.stroke();
-      ctx.strokeStyle = "#111c28";
+      ctx.strokeStyle = poleColorDark;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(s.x - 8, s.y - lift * 0.5);
