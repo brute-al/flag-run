@@ -1,15 +1,79 @@
 # Deploy notes (read this before redeploying)
 
-## NEXT UP — where we left off (2026-07-30)
-Duel mode's **milestone 2 (combat) is confirmed live**: four commits
-(c1aa5e4/20d11e5/e7433fe/36da00e) all verified via their own diff pages, a
-READY Vercel deployment matching the last of them, and a live in-browser
-check with no console errors on the actual game page. On top of that, the
-**territorial-turrets follow-up (see "What shipped (territorial turrets)"
-below) is also confirmed live**: three commits (f573499/bd62794/c612af5)
-all verified via their own diff pages, a READY Vercel deployment
-(dpl_5LbtoDEMTqGDCuRmuy7WnHphFUKn) matching the last of them, and a live
-in-browser check (duel mode + tank, round started, no console errors).
+## NEXT UP — where we left off (2026-07-31)
+Duel mode's **milestone 2 (combat) and the territorial-turrets follow-up are
+both confirmed live** (see the previous entry below for their commit/
+deployment verification trail). On top of that, a **bigger control-scheme
+rework the user asked for after playing more -- twin-stick aiming -- is
+built and passing all tests locally, but NOT yet committed, deployed, or
+live-verified.** Check `list_deployments`/the commit history before
+assuming it's live, per this file's own commit-verification lesson further
+down; don't assume a push succeeded without checking.
+
+**What shipped (twin-stick aiming, replacing Q/E turret traverse):** the
+user played Minishoot Adventure and wanted the tank/heli to aim like a
+modern twin-stick shooter -- move one direction, shoot another -- instead of
+the old Q/E-relative turret traverse. After a few direct questions (asked
+and answered in chat, not via the broken AskUserQuestion tool): keyboard
+aiming should use the mouse cursor (the standard PC equivalent of a
+controller's right stick, same scheme as Enter the Gungeon); aiming should
+autofire on its own, no separate fire button; and the heli's missile should
+now be a *modifier* -- hold F while aiming to swap the ongoing autofire from
+chaingun to missile, rather than F being its own separate trigger. Movement
+itself (tank forward/turn, heli translate) is unchanged.
+- `src/vehicle.js`: new `slewAngle()` helper turns an angle toward a target
+  at up to a given rate/sec via the shortest path. `Vehicle.update()`'s tank
+  (`hasTurret`) and heli (`isAerial`) branches both now check for an
+  `input.aimAngle`: if present, the turret/nose slews toward it directly,
+  fully independent of the hull, at a new per-vehicle `aimSlewRate` (18
+  rad/s tank, 14 rad/s heli -- fast enough to feel instant without visibly
+  popping). If `aimAngle` is absent, both branches fall back to the
+  **original incremental `turretTurn` logic unchanged** -- this is what lets
+  the duel-mode AI opponent (`aiDriver.js`) keep aiming exactly as before
+  with zero changes to it or its tests, since it never supplies an
+  `aimAngle`, only `turretTurn`.
+- `src/input.js`: dropped Q/E entirely. Added mouse tracking (screen
+  position + left-button-held) and `getAim(ctx)`, which converts the mouse's
+  screen position into a world-space angle relative to the vehicle (using
+  `ctx` = vehicle position + camera position + canvas size, the inverse of
+  `Camera.worldToScreen`). `isFiring()` now means "left mouse button held."
+  `isFiring2()` (F) is unchanged at the key-binding level but is now used
+  purely as the heli's weapon-swap modifier, not a standalone trigger.
+- `src/gamepadInput.js`: dropped the shoulder-bumper `turretTurn` mapping.
+  Added `getAim()` using the right stick (axes 2/3) -- no sign flip needed
+  unlike throttle, since an angle doesn't need the "up = positive" scalar
+  correction throttle does. Remembers the last-deflected angle so the
+  turret doesn't snap back when the stick is released. `isFiring()` is now
+  "right stick deflected past its deadzone" (the twin-stick convention:
+  pushing a direction fires in it, no separate trigger).
+- `src/combinedInput.js`: `getAim(ctx)` prioritizes whichever device is
+  actively engaged this frame (right stick deflected, or mouse held/moved),
+  falling back to the right stick's last-known angle, then the mouse's live
+  angle, then nothing -- mirrors the existing throttle/turn merge philosophy
+  applied to a value that can't just be summed.
+- `src/game.js`: `update()` now takes optional `canvasW`/`canvasH` (needed
+  for the mouse-to-world conversion; defaults keep the headless test suite
+  working unchanged). Resolves `aim` once per frame and reuses it for both
+  the vehicle's turret/nose tracking and the weapon-firing block. The
+  primary weapon now always fires along `aim.angle` (not
+  `turretAngle`/`heading`), gated on `aim.active` (mouse held / stick
+  deflected) with no separate fire-button check. The secondary weapon
+  (heli missile) fires along the same `aim.angle` whenever `aim.active` AND
+  the F modifier is held -- same autofire stream, different ammo.
+- `index.html`/`README.md`: help text and vehicle descriptions rewritten to
+  describe mouse/right-stick aiming instead of Q/E and SPACE.
+- Tests: rewrote the old Q/E-traverse test (tank) to prove twin-stick
+  tracking instead (turret follows `aimAngle` regardless of hull heading,
+  fires along the aim angle, doesn't fire without the trigger held); added
+  a new heli test proving nose-tracking independent of translation and the
+  held-F weapon swap; updated the gamepad-merge test for the new
+  `getVector()`/`getAim()` split; added `aimAngle` to every other existing
+  test that fires a weapon (turret-destruction, missile-vs-turret,
+  particle/muzzle-flash, AI-vs-player combat) so they keep aiming at the
+  same targets as before. All duel-mode/AI-combat tests were **not**
+  touched at all -- the legacy `turretTurn` fallback path means the AI's
+  aiming is completely unaffected. Stable across 5 consecutive
+  `node test/sim.mjs` runs (ALL PASS).
 
 Before milestone 2, the user separately asked two exploratory questions
 (answered but explicitly NOT built): whether the game could support a second

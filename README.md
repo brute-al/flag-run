@@ -22,7 +22,16 @@ Then open `http://localhost:8000` in a browser.
 - Pick a vehicle on the start screen (click a card)
 - `W`/`↑` `S`/`↓` — throttle forward / reverse
 - `A`/`←` `D`/`→` — turn left / right
-- `SPACE` — fire your weapon (tank/heli only — the jeep is unarmed)
+- **Twin-stick aim** (tank/heli only — the jeep is unarmed): your turret/heli
+  nose tracks your mouse cursor independently of however you're driving, and
+  autofires whenever you're aiming somewhere and holding the left mouse
+  button — move one way, shoot another, no separate fire key. On a
+  controller, the right stick does this: push it in a direction to aim and
+  autofire, same as the mouse.
+- `F` (or a controller's `B`/left trigger) — heli only: hold this while
+  aiming to swap the ongoing autofire from its chaingun to its longer-range
+  missile, which arcs over rooftops instead of stopping on the first
+  building in the way
 - `V` — swap vehicles, only while parked inside your own base
 - `R` — start a whole new round from the vehicle picker
 
@@ -71,8 +80,8 @@ spot twice.
 
 1. Pick a vehicle, then drive south from your base (blue) into the arena.
 2. Two turrets guard the enemy base and will shred an unescorted jeep. Take
-   the tank or helicopter out first and shoot back (`SPACE`) to knock the
-   turrets out — each has a visible health pip and goes gray/inert once
+   the tank or helicopter out first and aim at them (mouse or right stick) to
+   knock the turrets out — each has a visible health pip and goes gray/inert once
    destroyed.
 3. Drive (or fly) back to your own base and press `V` to swap into the jeep
    — the arena, turret damage, and flag all stay exactly as you left them.
@@ -191,8 +200,9 @@ against a building (reverses and retries, and after a few failed attempts on
 the same spot, gives up on that exact point and moves on rather than
 oscillating forever). **Milestone 2** armed it: the AI's turret independently
 swivels toward and fires on you whenever you're within range and it's
-roughly aimed — exactly like a human tank's Q/E turret traverse works
-independently of the hull — and it can now take damage and be destroyed,
+roughly aimed — independent of the hull, just like your own turret tracks
+your mouse/right-stick aim independently of however you're driving — and it
+can now take damage and be destroyed,
 respawning after a short delay just like you do. Turrets are also
 **territorial**: ones north of the map's exact halfway line (your side)
 defend it by targeting the AI opponent, ones south of that line (the AI's
@@ -251,7 +261,10 @@ test/
 
 Run the logic test any time with `node test/sim.mjs` — it covers per-vehicle
 movement and the win condition (on the procedural arena), jeep-only flag
-pickup, tank/heli weapons damaging and destroying turrets, ramming a
+pickup, twin-stick aiming (the tank turret and heli nose track an aim angle
+independently of the hull/driving, firing along that angle rather than the
+hull's, and the heli's held-missile weapon swap), tank/heli weapons damaging
+and destroying turrets, ramming a
 building down at speed (and that it scales with vehicle weight, that the
 jeep alone takes self-damage from the impact, and that the aerial heli never
 rams), the shared finite-lives round-loss condition across all three vehicle
