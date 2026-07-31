@@ -48,6 +48,15 @@ export class GamepadInput {
     return navigator.getGamepads()[this.index] || null;
   }
 
+  // Whether a gamepad has ever been touched this session (browsers only
+  // start reporting a pad after a button press -- see the class comment).
+  // CombinedInput uses this to make the gamepad the *exclusive* aim/fire
+  // input once one is connected, so the mouse's resting cursor position
+  // can't fight with the right stick.
+  isConnected() {
+    return this.index !== null;
+  }
+
   getVector() {
     const pad = this._pad();
     if (!pad) return { throttle: 0, turn: 0 };

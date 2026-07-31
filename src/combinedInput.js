@@ -25,25 +25,24 @@ export class CombinedInput {
   }
 
   // Aim, unlike throttle/turn, can't be meaningfully summed (two angles
-  // don't average into anything useful), so this picks whichever device is
-  // actually engaged this frame: the right stick wins if it's currently
-  // deflected (an active twin-stick input takes priority), otherwise the
-  // mouse's cursor-relative angle is used if it's ever moved, otherwise the
-  // right stick's last-known direction (if the player has used it before),
-  // otherwise nothing.
+  // don't average into anything useful) -- and unlike drive, mixing devices
+  // here actively hurts: a mouse cursor is *always* sitting somewhere, so
+  // if it stayed in the mix once a controller is connected, it would fight
+  // with the right stick the moment the stick recenters. So once a gamepad
+  // is connected, it's the sole aim/fire input, full stop -- the mouse only
+  // matters when no gamepad is connected at all.
   getAim(ctx) {
-    const g = this.gamepad.getAim();
-    if (g.active) return g;
-    const k = this.keyboard.getAim(ctx);
-    if (k.active || k.angle !== null) return k;
-    return g;
+    if (this.gamepad.isConnected()) return this.gamepad.getAim();
+    return this.keyboard.getAim(ctx);
   }
 
   isFiring() {
-    return this.keyboard.isFiring() || this.gamepad.isFiring();
+    if (this.gamepad.isConnected()) return this.gamepad.isFiring();
+    return this.keyboard.isFiring();
   }
 
   isFiring2() {
-    return this.keyboard.isFiring2() || this.gamepad.isFiring2();
+    if (this.gamepad.isConnected()) return this.gamepad.isFiring2();
+    return this.keyboard.isFiring2();
   }
 }

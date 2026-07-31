@@ -62,7 +62,7 @@ export const VEHICLE_TYPES = {
   tank: {
     label: "Tank",
     description:
-      "Slow, armored, twin-stick aim: drive with WASD while the turret independently tracks your mouse cursor (or a controller's right stick) and autofires the cannon whenever you're aiming somewhere — move one way, shoot another. Clear turrets so the jeep can get through. 2 lives.",
+      "Slow, armored, twin-stick aim and hovercraft movement: WASD slides it in any direction with no need to turn the hull first, while the turret independently tracks your mouse cursor (or a controller's right stick) and autofires the cannon whenever you're aiming somewhere — move one way, shoot another. Clear turrets so the jeep can get through. 2 lives.",
     accel: 260,
     reverseAccel: 150,
     maxSpeed: 210,
@@ -211,6 +211,11 @@ export class Vehicle {
         // `aimAngle` keeps working exactly as before.
         this.heading += (input.turretTurn || 0) * this.turnRate * dt;
       }
+    } else if (input.omni) {
+      // Hovercraft-style movement (see the thrust branch below): the hull
+      // isn't turned by player input at all here -- it's purely cosmetic,
+      // set further down (after velocity updates) to passively track
+      // whichever direction the vehicle is actually traveling.
     } else {
       // Turning authority tapers off a bit at high speed (harder to snap-turn
       // when driving along), but never drops to zero so drifting stays controllable.
@@ -259,6 +264,62 @@ export class Vehicle {
       // lean on here, but a hovering aircraft should still settle down.
       this.vx *= Math.max(0, 1 - this.rollingFriction * dt);
       this.vy *= Math.max(0, 1 - this.rollingFriction * dt);
+    } else if (input.omni) {
+      // Hovercraft-style movement (currently just the player's own tank --
+      // see the `omni` flag Game passes in game.js): the stick's raw x/y
+      // (`turn` = horizontal, `-throttle` = vertical, the same convention
+      // the keyboard/gamepad already produce) IS the movement direction,
+      // completely independent of the hull's facing -- no need to turn the
+      // vehicle body to change travel direction, matching the same "aim one
+      // way, move another" twin-stick feel as the turret's own independent
+      // aim. The duel-mode AI opponent's tank still drives the old
+      // turn-to-face way (see the `else` branch below) since aiDriver.js's
+      // pursuit steering assumes that model -- it never sets `omni`.
+      let moveX = input.turn || 0;
+      let moveY = -(input.throttle || 0);
+      const inputMag = Math.hypot(moveX, moveY);
+      if (inputMag > 1) {
+        moveX /= inputMag;
+        moveY /= inputMag;
+      }
+      this.vx += moveX * this.accel * dt;
+      this.vy += moveY * this.accel * dt;
+
+      // A pure "add thrust in the input direction" model has no way to
+      // recover from a sideways bump (e.g. the bounce arena.js's
+      // _resolveCircleCollision applies when ramming an obstacle) -- once
+      // deflected, a frictionless-feeling hovercraft would just keep
+      // drifting off at that new angle forever, since thrust re-applied
+      // along the *held* direction doesn't fight a velocity component
+      // that's perpendicular to it. Real hovercraft aren't that slippery
+      // either -- they still mostly go where you point them, with some
+      // slide. So: decompose velocity into along-input vs.
+      // perpendicular-to-input, and pull the perpendicular part toward zero
+      // with this vehicle's `grip`, the same stat that used to tame lateral
+      // drift under the old car-physics model. Only applies while actively
+      // pushing a direction -- an unheld tank just coasts on rolling
+      // friction below, same as before.
+      const mag2 = Math.hypot(moveX, moveY);
+      if (mag2 > 0.001) {
+        const dirX = moveX / mag2;
+        const dirY = moveY / mag2;
+        const vAlong = this.vx * dirX + this.vy * dirY;
+        const vPerpX = this.vx - vAlong * dirX;
+        const vPerpY = this.vy - vAlong * dirY;
+        const grip = this.grip * this.gripMultiplier;
+        const perpDecay = Math.max(0, 1 - grip * dt);
+        this.vx = vAlong * dirX + vPerpX * perpDecay;
+        this.vy = vAlong * dirY + vPerpY * perpDecay;
+      }
+
+      const curSpeed = Math.hypot(this.vx, this.vy);
+      if (curSpeed > maxFwd) {
+        const scale = maxFwd / curSpeed;
+        this.vx *= scale;
+        this.vy *= scale;
+      }
+      this.vx *= Math.max(0, 1 - this.rollingFriction * dt);
+      this.vy *= Math.max(0, 1 - this.rollingFriction * dt);
     } else {
       // Engine force applied along the *current heading*, not the velocity.
       if (input.throttle > 0) {
@@ -292,6 +353,18 @@ export class Vehicle {
 
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+
+    // Hovercraft hull is purely cosmetic (the turret already aims
+    // independently, see below) -- just have it visually settle to face
+    // wherever it's actually traveling, rather than staying wherever it last
+    // happened to point.
+    if (input.omni && !this.isAerial) {
+      const travelSpeed = Math.hypot(this.vx, this.vy);
+      if (travelSpeed > 5) {
+        const travelAngle = Math.atan2(this.vy, this.vx);
+        this.heading = slewAngle(this.heading, travelAngle, this.turnRate, dt);
+      }
+    }
 
     // Twin-stick aim: the turret tracks `input.aimAngle` directly and fully
     // independent of the hull -- no "offset from the hull" concept anymore,
