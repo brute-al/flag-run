@@ -1,6 +1,90 @@
 # Deploy notes (read this before redeploying)
 
-## NEXT UP — where we left off (2026-07-31, two small feel tweaks)
+## NEXT UP — where we left off (2026-08-28, powerup rebalance + visual cues)
+**Implementation + tests done, not yet committed/deployed.** User feedback
+after playing with powerups: OVERCHARGE's 2x damage didn't feel different
+enough shot-to-shot; ARMOR and LASER worked but were invisible on the
+vehicle itself (only the HUD showed they were active); BIG SHOT actively
+felt bad because its fattened bullet radius makes it *more* likely to clip a
+building you weren't aiming at, not less, and since it isn't piercing that
+shot is just wasted. This batch covers all four: OVERCHARGE bumped, ARMOR/
+LASER given vehicle-visuals, and BIG SHOT replaced outright rather than
+just rebalanced (see the design flaw explained below).
+
+**What shipped (OVERCHARGE 2x → 4x):** `game.js`'s `POWERUP_STATS.overcharge
+.damageMult`, `2` → `4`. `entities.js`'s `POWERUP_INFO.overcharge.glyph`
+("2X" → "4X") and the one test asserting the old value (`test/sim.mjs`) were
+updated to match. No other code cared about the literal number.
+
+**What shipped (ARMOR bubble / LASER glow):** `vehicleArt.js`'s
+`drawVehicle()` takes a new optional `powerupType` param; when it's
+`"armor"` it draws a stroked ring + soft fill around the vehicle body using
+`POWERUP_INFO.armor`'s existing `color`/`glow`, and when it's `"laser"` it
+draws a softer pulsing filled halo using `POWERUP_INFO.laser`'s. Both
+colors are the *same* ones the floating world-pickup icon already uses
+(entities.js's `Powerup.draw()`), so nothing new was invented — the glow
+you picked up off the ground is now the glow you're wearing. `game.js`'s
+`draw()` passes `this.activePowerup?.type` only for the player's own
+vehicle (the duel-mode AI never holds a powerup, so it always gets `null`
+and renders exactly as before). Pulse uses `performance.now()`, same
+pattern the heli's rotor animation already relied on.
+
+**BIG SHOT → SPLASH (rewritten, not just rebalanced):** confirmed via
+`game.js`'s building-collision check (`Math.hypot(...) < o.radius +
+bullet.radius`, around line 725) that BIG SHOT's `radiusMult: 2.2` widened
+the bullet's own collision radius, not just its sprite — so a shot that
+would've cleanly missed a building's edge at normal width now clipped it,
+and since BIG SHOT wasn't piercing, that shot died right there instead of
+reaching whatever it was actually aimed at. That's a real design flaw, not
+a tuning problem, so rather than rebalancing the number the type itself was
+replaced. Presented the user 4 candidate replacement concepts (splash/
+explosive rounds, rapid fire, spread shot, ricochet); they picked splash
+rounds. Renamed the type key `bigShot` → `splash` everywhere (arena.js's
+seed list, entities.js's `POWERUP_INFO`, game.js's `POWERUP_STATS`, and
+every reference across `test/sim.mjs`/README). New stats:
+`{ damageMult: 1.2, radiusMult: 1, splashRadius: 55, splashDamageMult: 0.5
+}` — the bullet itself is now completely ordinary (`radiusMult: 1`, same
+hit test as a plain shot), and a new `Game._applySplash(bullet, x, y,
+excludeObstacle, excludeTurret)` method — called once from each of the
+building-hit and turret-hit branches in the collision-handling block,
+right where the bullet would otherwise just stop — deals `splashDamageMult`
+of the shot's damage to every *other* destructible building and live
+turret within `splashRadius` of the impact point (the thing directly hit
+is excluded, since it already took a full hit via the existing path). A
+splash round can now take out a turret and singe the building next to it,
+or vice versa, in one shot, and a `fieryExplosion` particle burst at the
+impact point sells the bigger hit. Every other powerup leaves
+`splashRadius`/`splashDamageMult` at `0`, so `_applySplash` is a no-op for
+them — no shared-code risk.
+
+**Test updates**: `test/sim.mjs`'s old BIG SHOT `_weaponModifiers()` check
+now asserts SPLASH keeps `radiusMult === 1` and carries a `splashRadius`;
+the "OVERCHARGE doubles damage" check now asserts `damageMult === 4`; both
+`VALID_TYPES` lists (initial seeding + re-seed-on-new-round) updated to
+`"splash"`. Added a new end-to-end section (23) that fires an actual
+`Bullet` with `splashRadius`/`splashDamageMult` set at a building placed
+next to a second, direct-placed neighbor building, and confirms: the
+direct hit takes full damage, the neighbor takes exactly the reduced
+splash share without being hit directly, and a plain non-splash bullet
+under the same setup leaves the neighbor completely untouched. Reran the
+full suite — stable "ALL PASS".
+
+**Docs**: README's Powerups paragraph updated for 4x OVERCHARGE, the new
+ARMOR/LASER vehicle-visual behavior, and SPLASH's new description.
+
+**Not yet done — three separate things are now stacked up waiting on one
+commit:** (1) this powerup batch, (2) the jeep-ram/heli-hovercraft tweaks
+from the entry directly below (implemented and tested last session, never
+pushed), and (3) the mobile/touch-support backlog bullet added to this
+README's "Where this could go next" section (a docs-only change, also never
+pushed) — all blocked on the same thing, the Claude-in-Chrome browser
+extension being disconnected mid-session. Bundle all three into the next
+GitHub commit once it reconnects, rather than doing three separate small
+commits.
+
+---
+
+## Previous — 2026-07-31, two small feel tweaks
 **Implementation + tests done, not yet committed/deployed.** User feedback
 after trying the oblique camera pass (see the entry directly below): the
 jeep's building-ram self-damage felt too punishing, and the heli's

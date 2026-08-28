@@ -80,13 +80,19 @@ instead of colliding with them.
 and unlike the rest of the neighborhood, a seeded building is unmistakable:
 it glows gold with a pulsing halo, so hunting one down is a real choice, not
 a lucky demolition. Destroy one and it drops a floating, time-limited buff:
-OVERCHARGE (2x damage), BIG SHOT (fatter, harder-hitting rounds), LASER
-(pierces through buildings/turrets instead of stopping on the first hit), or
+OVERCHARGE (4x damage), SPLASH (normal-width shots, but each hit also
+damages nearby buildings/turrets — no more clipping cover you didn't mean
+to), LASER (pierces through buildings/turrets instead of stopping on the
+first hit), or
 ARMOR (halves incoming damage — the one defensive buff in the set). Drive
 over the dropped icon to grab it; the HUD shows which buff is active and how
 much time is left. Which 5 buildings hide a powerup is re-rolled every round
 (each time you pick a vehicle from the start screen), so it's never the same
-spot twice.
+spot twice. ARMOR and LASER also show up on the vehicle itself, not just the
+HUD: ARMOR draws a green shield ring around the vehicle while it's soaking
+hits, and LASER draws a pulsing purple aura while it's active (see
+vehicleArt.js's drawVehicle) — both reuse the same glow color as their
+world-pickup icon, so the color language stays consistent end to end.
 
 ## The core loop
 
@@ -373,3 +379,22 @@ player's own flag status.
   if you want a punchier, less "retro synth" sound.
 - A visible weapon-cooldown/reload indicator in the HUD instead of just the
   fire-rate feel.
+- **Mobile/touch support.** Discussed with the user as a real port, not a
+  quick hack: `Game`/`Vehicle` never talk to a specific input device
+  directly, only to an object exposing `getVector()`/`getAim()`/
+  `isFiring()`/`isFiring2()` (see `combinedInput.js`) — keyboard, mouse, and
+  the Xbox controller are just three implementations of that same interface.
+  A `TouchInput` class would be a fourth: two on-screen drag joysticks (left
+  = movement → `getVector()`, right = aim/autofire → `getAim()`), mirroring
+  how the gamepad's right stick already behaves on release (holds its last
+  aimed angle instead of snapping to zero — see `gamepadInput.js`'s
+  `_lastAimAngle`). Also needed: on-screen tap buttons for V/R/F (currently
+  keyboard-only), a responsive HUD/CSS pass for small screens, careful
+  multi-touch handling (two simultaneous drags, tracked by touch
+  identifier), `touch-action: none` + `preventDefault` so the browser
+  doesn't scroll/zoom mid-game, and audio-unlock on first tap (already
+  happens on first keydown/click today, so likely free). The one real
+  unknown rather than a design question: whether Canvas 2D drawing ~400
+  buildings plus turrets/bullets/particles every frame holds up on real
+  phone hardware — untested, should be checked on a device early rather
+  than assumed.
